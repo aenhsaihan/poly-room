@@ -168,26 +168,62 @@ export function shortWallet(w: string) {
 }
 
 export async function getWorstTraders(limit = 20): Promise<TopTrader[]> {
-  const res = await fetch(
-    `https://data-api.polymarket.com/v1/leaderboard?rankType=pnl&limit=${limit}&ascending=true`,
-    { next: { revalidate: 300 } }
+  // Mine recently resolved markets: find wallets that bought the losing outcome
+  const closedRes = await fetch(
+    `${GAMMA}/markets?closed=true&active=false&limit=50&order=endDate&ascending=false`,
+    { headers: getHeaders(), next: { revalidate: 300 } }
   );
-  if (!res.ok) return [];
-  const data = await res.json() as Record<string, unknown>[];
-  if (!Array.isArray(data)) return [];
-  return data.map(t => {
-    const wallet = (t.proxyWallet as string) || '';
-    const raw = (t.userName as string) || '';
-    const name = raw && !raw.startsWith('0x') ? raw : shortWallet(wallet);
-    return {
-      rank: Number(t.rank ?? 0),
+  if (!closedRes.ok) return [];
+  let closedData: Record<string, unknown>[];
+  try { closedData = await closedRes.json() as Record<string, unknown>[]; } catch { return []; }
+  if (!Array.isArray(closedData)) return [];
+
+  // Find definitively resolved markets (one outcome at 1, other at 0) with a conditionId
+  const resolved = closedData
+    .map(raw => {
+      try {
+        const m = parse(raw);
+        const loserIdx = m.outcomePrices.findIndex(p => p <= 0.01);
+        const winnerIdx = m.outcomePrices.findIndex(p => p >= 0.99);
+        if (loserIdx < 0 || winnerIdx < 0 || !m.conditionId) return null;
+        return { conditionId: m.conditionId, losingOutcome: m.outcomes[loserIdx] };
+      } catch { return null; }
+    })
+    .filter((x): x is { conditionId: string; losingOutcome: string } => x !== null)
+    .slice(0, 20);
+
+  if (resolved.length === 0) return [];
+
+  // Fetch trades from each resolved market in parallel, collect wallets on losing side
+  const tradeSets = await Promise.all(
+    resolved.map(async ({ conditionId, losingOutcome }) => {
+      const trades = await getRealTrades(conditionId, 100);
+      return trades
+        .filter(t => t.side === 'BUY' && t.outcome.toLowerCase() === losingOutcome.toLowerCase())
+        .map(t => ({ wallet: t.proxyWallet, loss: t.size * t.price }));
+    })
+  );
+
+  // Aggregate total losses by wallet
+  const lossMap = new Map<string, number>();
+  for (const set of tradeSets) {
+    for (const { wallet, loss } of set) {
+      if (!wallet) continue;
+      lossMap.set(wallet, (lossMap.get(wallet) ?? 0) + loss);
+    }
+  }
+
+  return [...lossMap.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([wallet, totalLoss], i) => ({
+      rank: i + 1,
       wallet,
-      name,
-      pnl: Number(t.pnl ?? 0),
-      volume: Number(t.vol ?? 0),
-      profileImage: (t.profileImage as string) || '',
-    };
-  });
+      name: shortWallet(wallet),
+      pnl: -totalLoss,
+      volume: totalLoss,
+      profileImage: '',
+    }));
 }
 
 export async function getTopTraders(limit = 20): Promise<TopTrader[]> {

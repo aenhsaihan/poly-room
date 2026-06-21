@@ -24,8 +24,13 @@ interface Follow {
   copiedSpent: number;
 }
 
-const fmtUsd = (n: number) =>
-  n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `$${(n / 1000).toFixed(0)}K` : `$${n.toFixed(0)}`;
+const fmtUsd = (n: number) => {
+  const sign = n < 0 ? '-' : '';
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1000) return `${sign}$${(abs / 1000).toFixed(0)}K`;
+  return `${sign}$${abs.toFixed(0)}`;
+};
 
 function timeAgo(iso: string) {
   const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -408,12 +413,12 @@ export default function CopyPage() {
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    <StatSlot label="P&L" value={fmtUsd(t.pnl)} color="text-red-400" />
+                    <StatSlot label="Lost" value={fmtUsd(Math.abs(t.pnl))} color="text-red-400" />
                     <StatSlot label="Volume" value={fmtUsd(t.volume)} />
                     <StatSlot
                       label="Edge %"
                       value={`${edge.toFixed(1)}%`}
-                      color="text-red-400"
+                      color={edge < 0 ? 'text-red-400' : 'text-zinc-300'}
                       sub="PnL / volume"
                     />
                     <StatSlot
