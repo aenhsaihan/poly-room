@@ -1,0 +1,27 @@
+# Next.js
+.next/
+out/
+
+# Dependencies
+node_modules/
+
+# Build artifacts
+tsconfig.tsbuildinfo
+
+# Local database
+*.db
+*.db-wal
+*.db-shm
+
+# Environment
+.env*.local
+.env
+
+# OS
+.DS_Store
+
+# Vercel
+.vercel
+
+# Claude Code local settings
+.claude/
