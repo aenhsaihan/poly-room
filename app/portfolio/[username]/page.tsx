@@ -34,12 +34,26 @@ export default function PortfolioPage({ params }: { params: Promise<{ username: 
   const { username: me } = useUser();
   const [data, setData] = useState<{ user: User; positions: Position[]; trades: Trade[] } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<{ settled: number; payout: number } | null>(null);
 
-  useEffect(() => {
+  const loadPortfolio = () =>
     fetch(`/api/portfolio/${encodeURIComponent(username)}`)
       .then(r => r.json())
       .then(d => { setData(d); setLoading(false); });
-  }, [username]);
+
+  useEffect(() => { loadPortfolio(); }, [username]);
+
+  async function handleSync() {
+    setSyncing(true);
+    setSyncResult(null);
+    const res = await fetch(`/api/portfolio/${encodeURIComponent(username)}/sync`, { method: 'POST' });
+    const result = await res.json();
+    setSyncResult(result);
+    setSyncing(false);
+    setLoading(true);
+    loadPortfolio();
+  }
 
   if (loading) return (
     <main className="max-w-2xl mx-auto px-4 py-8">
@@ -88,9 +102,29 @@ export default function PortfolioPage({ params }: { params: Promise<{ username: 
 
       {positions.length > 0 && (
         <div>
-          <h2 className="text-lg font-semibold text-white mb-3">
-            Open Positions <span className="text-zinc-500 text-sm font-normal">({positions.length})</span>
-          </h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold text-white">
+              Open Positions <span className="text-zinc-500 text-sm font-normal">({positions.length})</span>
+            </h2>
+            {isMe && (
+              <div className="flex items-center gap-2">
+                {syncResult && (
+                  <span className="text-xs text-zinc-400">
+                    {syncResult.settled === 0
+                      ? 'No closed positions found'
+                      : `Settled ${syncResult.settled} position${syncResult.settled !== 1 ? 's' : ''} · +$${syncResult.payout.toFixed(2)}`}
+                  </span>
+                )}
+                <button
+                  onClick={handleSync}
+                  disabled={syncing}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white disabled:opacity-50 transition"
+                >
+                  {syncing ? 'Syncing…' : '⟳ Sync'}
+                </button>
+              </div>
+            )}
+          </div>
           <div className="space-y-2">
             {positions.map((p, i) => {
               const value = p.shares * p.avg_price;
