@@ -350,11 +350,12 @@ export default function CopyPage() {
   );
 }
 
-function StatSlot({ label, value, color = 'text-white' }: { label: string; value: string; color?: string }) {
+function StatSlot({ label, value, color = 'text-white', sub }: { label: string; value: string; color?: string; sub?: string }) {
   return (
     <div className="bg-zinc-800 rounded-lg px-2.5 py-2">
       <p className="text-zinc-600 text-xs mb-0.5">{label}</p>
       <p className={`font-mono font-bold text-sm ${color}`}>{value}</p>
+      {sub && <p className="text-zinc-600 text-xs mt-0.5">{sub}</p>}
     </div>
   );
 }
