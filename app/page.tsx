@@ -92,7 +92,7 @@ export default function MarketsPage() {
     <main className="max-w-6xl mx-auto px-4 py-6">
       <div className="flex flex-col gap-3 mb-6">
         <div className="flex flex-wrap gap-2 items-center justify-between">
-          <h1 className="text-2xl font-bold text-white">Markets</h1>
+          <h1 className="text-2xl font-bold text-white">Markets 🚀</h1>
           <div className="flex gap-2 items-center">
             <div className="relative">
               <input
