@@ -183,7 +183,9 @@ export default function PortfolioPage({ params }: { params: Promise<{ username: 
                       ⧉ {t.copied_from}
                     </span>
                   )}
-                  <span className="text-white font-mono text-xs flex-shrink-0">${t.amount.toFixed(2)}</span>
+                  <span className={`font-mono text-xs flex-shrink-0 font-semibold ${t.side === 'BUY' ? 'text-red-400' : 'text-green-400'}`}>
+                    {t.side === 'BUY' ? '-' : '+'}${t.amount.toFixed(2)}
+                  </span>
                 </div>
                 <div className="flex justify-between mt-1.5 text-zinc-600 text-xs">
                   <span>{t.shares.toFixed(2)} shares @ {(t.price * 100).toFixed(0)}¢</span>
