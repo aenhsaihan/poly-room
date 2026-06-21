@@ -23,6 +23,12 @@ interface Follow {
   copiedTrades: number;
   copiedSpent: number;
 }
+interface Blocked {
+  id: number;
+  wallet: string;
+  traderName: string;
+  createdAt: string;
+}
 
 const fmtUsd = (n: number) =>
   n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `$${(n / 1000).toFixed(0)}K` : `$${n.toFixed(0)}`;
@@ -46,12 +52,20 @@ export default function CopyPage() {
   const [followSort, setFollowSort] = useState<'pnl' | 'volume' | 'trades' | 'deployed' | 'copyAmount' | 'since'>('pnl');
   const [traderSort, setTraderSort] = useState<'pnl' | 'volume' | 'edge' | 'avgBuySize'>('pnl');
   const [traderSortDir, setTraderSortDir] = useState<'desc' | 'asc'>('desc');
+  const [blocklist, setBlocklist] = useState<Blocked[]>([]);
 
   const loadFollows = useCallback(async () => {
     if (!username) return;
     const r = await fetch(`/api/follows?username=${encodeURIComponent(username)}`);
     const d = await r.json();
     if (Array.isArray(d)) setFollows(d);
+  }, [username]);
+
+  const loadBlocklist = useCallback(async () => {
+    if (!username) return;
+    const r = await fetch(`/api/blocklist?username=${encodeURIComponent(username)}`);
+    const d = await r.json();
+    if (Array.isArray(d)) setBlocklist(d);
   }, [username]);
 
   useEffect(() => {
@@ -62,6 +76,7 @@ export default function CopyPage() {
   }, []);
 
   useEffect(() => { loadFollows(); }, [loadFollows]);
+  useEffect(() => { loadBlocklist(); }, [loadBlocklist]);
 
   // mirror any new trades from followed wallets when the page opens
   useEffect(() => {
@@ -105,7 +120,28 @@ export default function CopyPage() {
     loadFollows();
   }
 
+  async function block(wallet: string, name: string) {
+    if (!username) return;
+    await fetch('/api/blocklist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, wallet, traderName: name }),
+    });
+    loadBlocklist();
+  }
+
+  async function unblock(wallet: string) {
+    if (!username) return;
+    await fetch('/api/blocklist', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, wallet }),
+    });
+    loadBlocklist();
+  }
+
   const followedWallets = new Set(follows.map(f => f.wallet.toLowerCase()));
+  const blockedWallets = new Set(blocklist.map(b => b.wallet.toLowerCase()));
 
   return (
     <main className="max-w-3xl mx-auto px-4 py-8 space-y-8">
@@ -224,6 +260,49 @@ export default function CopyPage() {
         </div>
       )}
 
+      {/* Do Not Copy */}
+      {username && blocklist.length > 0 && (
+        <div>
+          <h2 className="text-lg font-semibold text-white mb-1">
+            🚫 Do Not Copy <span className="text-zinc-500 text-sm font-normal">({blocklist.length})</span>
+          </h2>
+          <p className="text-zinc-600 text-xs mb-3">Traders you&apos;ve flagged. Stats shown so you remember why.</p>
+          <div className="space-y-2">
+            {blocklist.map(b => {
+              const t = traders.find(t => t.wallet.toLowerCase() === b.wallet.toLowerCase());
+              const edge = t && t.volume > 0 ? (t.pnl / t.volume) * 100 : null;
+              return (
+                <div key={b.id} className="bg-zinc-900 border border-red-900/40 rounded-xl p-4">
+                  <div className="flex items-center justify-between gap-3 mb-3">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {t?.rank && <span className="text-zinc-600 font-mono text-xs flex-shrink-0">#{t.rank}</span>}
+                      <Link href={`/trader/${b.wallet}`} className="text-white text-sm font-semibold hover:text-blue-300 transition truncate">
+                        {b.traderName}
+                      </Link>
+                      <span className="text-zinc-700 font-mono text-xs flex-shrink-0">{b.wallet.slice(0, 6)}…{b.wallet.slice(-4)}</span>
+                    </div>
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      <span className="text-zinc-600 text-xs">blocked {timeAgo(b.createdAt)}</span>
+                      <button onClick={() => unblock(b.wallet)} className="text-xs text-zinc-600 hover:text-zinc-300 transition">unblock</button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <StatSlot label="P&L" value={t ? `+${fmtUsd(t.pnl)}` : '—'} color="text-green-400" />
+                    <StatSlot label="Volume" value={t ? fmtUsd(t.volume) : '—'} />
+                    <StatSlot
+                      label="Edge %"
+                      value={edge != null ? `${edge.toFixed(1)}%` : '—'}
+                      color={edge != null ? (edge >= 20 ? 'text-green-400' : edge >= 10 ? 'text-yellow-400' : 'text-zinc-300') : 'text-zinc-600'}
+                    />
+                    <StatSlot label="Avg buy" value={t?.avgBuySize != null ? `$${t.avgBuySize.toFixed(0)}` : '—'} sub="per trade" />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Top traders */}
       <div>
         <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
@@ -276,6 +355,7 @@ export default function CopyPage() {
             <div className="space-y-2">
               {sorted.map(t => {
                 const isFollowed = followedWallets.has(t.wallet.toLowerCase());
+                const isBlocked = blockedWallets.has(t.wallet.toLowerCase());
                 const follow = follows.find(f => f.wallet.toLowerCase() === t.wallet.toLowerCase());
                 const edge = t.volume > 0 ? (t.pnl / t.volume) * 100 : 0;
 
@@ -296,16 +376,27 @@ export default function CopyPage() {
                         {t.name}
                       </Link>
                       {username ? (
-                        isFollowed ? (
-                          <span className="text-xs text-blue-400 font-medium flex-shrink-0">✓ copying</span>
-                        ) : (
-                          <button
-                            onClick={() => setModal({ wallet: t.wallet, name: t.name })}
-                            className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg font-semibold transition flex-shrink-0"
-                          >
-                            ⧉ Copy
-                          </button>
-                        )
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          {isFollowed ? (
+                            <span className="text-xs text-blue-400 font-medium">✓ copying</span>
+                          ) : isBlocked ? (
+                            <span className="text-xs text-red-400 font-medium">🚫 blocked</span>
+                          ) : (
+                            <button
+                              onClick={() => setModal({ wallet: t.wallet, name: t.name })}
+                              className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg font-semibold transition"
+                            >
+                              ⧉ Copy
+                            </button>
+                          )}
+                          {!isFollowed && (
+                            isBlocked ? (
+                              <button onClick={() => unblock(t.wallet)} className="text-xs text-zinc-600 hover:text-zinc-300 transition">unblock</button>
+                            ) : (
+                              <button onClick={() => block(t.wallet, t.name)} className="text-xs text-zinc-600 hover:text-red-400 transition" title="Add to Do Not Copy">🚫</button>
+                            )
+                          )}
+                        </div>
                       ) : (
                         <span className="text-xs text-zinc-600 flex-shrink-0">log in to copy</span>
                       )}
