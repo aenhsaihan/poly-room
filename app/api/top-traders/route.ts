@@ -1,6 +1,23 @@
 import { NextResponse } from 'next/server';
-import { getTopTraders } from '@/lib/polymarket';
+import { getTopTraders, getWalletTrades } from '@/lib/polymarket';
 
 export async function GET() {
-  return NextResponse.json(await getTopTraders(20));
+  const traders = await getTopTraders(20);
+
+  const enriched = await Promise.all(
+    traders.map(async t => {
+      try {
+        const trades = await getWalletTrades(t.wallet, 30);
+        const buys = trades.filter(x => x.side === 'BUY');
+        const avgBuySize = buys.length > 0
+          ? buys.reduce((s, x) => s + x.size * x.price, 0) / buys.length
+          : null;
+        return { ...t, avgBuySize };
+      } catch {
+        return { ...t, avgBuySize: null };
+      }
+    })
+  );
+
+  return NextResponse.json(enriched);
 }

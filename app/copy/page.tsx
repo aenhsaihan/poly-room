@@ -11,6 +11,7 @@ interface TopTrader {
   pnl: number;
   volume: number;
   profileImage: string;
+  avgBuySize: number | null;
 }
 interface Follow {
   id: number;
@@ -308,7 +309,7 @@ export default function CopyPage() {
                       )}
                     </div>
 
-                    <div className={`grid gap-2 ${follow ? 'grid-cols-3 sm:grid-cols-6' : 'grid-cols-3'}`}>
+                    <div className={`grid gap-2 ${follow ? 'grid-cols-2 sm:grid-cols-6' : 'grid-cols-2 sm:grid-cols-4'}`}>
                       <StatSlot label="P&L" value={`+${fmtUsd(t.pnl)}`} color="text-green-400" />
                       <StatSlot label="Volume" value={fmtUsd(t.volume)} />
                       <StatSlot
@@ -317,10 +318,14 @@ export default function CopyPage() {
                         color={edge >= 20 ? 'text-green-400' : edge >= 10 ? 'text-yellow-400' : 'text-zinc-300'}
                         sub="PnL / volume"
                       />
+                      <StatSlot
+                        label="Avg buy"
+                        value={t.avgBuySize != null ? `$${t.avgBuySize.toFixed(0)}` : '—'}
+                        sub="per trade"
+                      />
                       {follow && <>
                         <StatSlot label="$/trade" value={`$${follow.copyAmount}`} />
                         <StatSlot label="Trades" value={String(follow.copiedTrades)} />
-                        <StatSlot label="Deployed" value={follow.copiedSpent > 0 ? `$${follow.copiedSpent.toFixed(0)}` : '$0'} />
                       </>}
                     </div>
                   </div>
