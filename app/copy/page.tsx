@@ -44,7 +44,7 @@ export default function CopyPage() {
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [modal, setModal] = useState<{ wallet: string; name: string } | null>(null);
   const [followSort, setFollowSort] = useState<'pnl' | 'volume' | 'trades' | 'deployed' | 'copyAmount' | 'since'>('pnl');
-  const [traderSort, setTraderSort] = useState<'pnl' | 'volume' | 'edge'>('pnl');
+  const [traderSort, setTraderSort] = useState<'pnl' | 'volume' | 'edge' | 'avgBuySize'>('pnl');
   const [traderSortDir, setTraderSortDir] = useState<'desc' | 'asc'>('desc');
 
   const loadFollows = useCallback(async () => {
@@ -233,9 +233,10 @@ export default function CopyPage() {
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {([
-              { value: 'pnl',    label: 'P&L' },
-              { value: 'volume', label: 'Volume' },
-              { value: 'edge',   label: 'Edge %' },
+              { value: 'pnl',        label: 'P&L' },
+              { value: 'volume',     label: 'Volume' },
+              { value: 'edge',       label: 'Edge %' },
+              { value: 'avgBuySize', label: 'Avg buy' },
             ] as const).map(o => (
               <button
                 key={o.value}
@@ -266,6 +267,7 @@ export default function CopyPage() {
             const edgeB = b.volume > 0 ? b.pnl / b.volume : 0;
             const val = traderSort === 'pnl' ? b.pnl - a.pnl
               : traderSort === 'volume' ? b.volume - a.volume
+              : traderSort === 'avgBuySize' ? (b.avgBuySize ?? -1) - (a.avgBuySize ?? -1)
               : edgeB - edgeA;
             return traderSortDir === 'desc' ? val : -val;
           });
