@@ -170,7 +170,7 @@ export function shortWallet(w: string) {
 export async function getWorstTraders(limit = 20): Promise<TopTrader[]> {
   // Mine recently resolved markets: find wallets that bought the losing outcome
   const closedRes = await fetch(
-    `${GAMMA}/markets?closed=true&active=false&limit=50&order=endDate&ascending=false`,
+    `${GAMMA}/markets?closed=true&active=false&limit=50&order=volumeNum&ascending=false`,
     { headers: getHeaders(), next: { revalidate: 300 } }
   );
   if (!closedRes.ok) return [];
