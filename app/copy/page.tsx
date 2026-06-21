@@ -23,12 +23,6 @@ interface Follow {
   copiedTrades: number;
   copiedSpent: number;
 }
-interface Blocked {
-  id: number;
-  wallet: string;
-  traderName: string;
-  createdAt: string;
-}
 
 const fmtUsd = (n: number) =>
   n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `$${(n / 1000).toFixed(0)}K` : `$${n.toFixed(0)}`;
@@ -44,28 +38,24 @@ function timeAgo(iso: string) {
 export default function CopyPage() {
   const { username, refreshBalance } = useUser();
   const [traders, setTraders] = useState<TopTrader[]>([]);
+  const [worstTraders, setWorstTraders] = useState<TopTrader[]>([]);
   const [follows, setFollows] = useState<Follow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [worstLoading, setWorstLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [modal, setModal] = useState<{ wallet: string; name: string } | null>(null);
   const [followSort, setFollowSort] = useState<'pnl' | 'volume' | 'trades' | 'deployed' | 'copyAmount' | 'since'>('pnl');
   const [traderSort, setTraderSort] = useState<'pnl' | 'volume' | 'edge' | 'avgBuySize'>('pnl');
   const [traderSortDir, setTraderSortDir] = useState<'desc' | 'asc'>('desc');
-  const [blocklist, setBlocklist] = useState<Blocked[]>([]);
+  const [worstSort, setWorstSort] = useState<'pnl' | 'volume' | 'edge' | 'avgBuySize'>('pnl');
+  const [worstSortDir, setWorstSortDir] = useState<'desc' | 'asc'>('asc');
 
   const loadFollows = useCallback(async () => {
     if (!username) return;
     const r = await fetch(`/api/follows?username=${encodeURIComponent(username)}`);
     const d = await r.json();
     if (Array.isArray(d)) setFollows(d);
-  }, [username]);
-
-  const loadBlocklist = useCallback(async () => {
-    if (!username) return;
-    const r = await fetch(`/api/blocklist?username=${encodeURIComponent(username)}`);
-    const d = await r.json();
-    if (Array.isArray(d)) setBlocklist(d);
   }, [username]);
 
   useEffect(() => {
@@ -75,8 +65,14 @@ export default function CopyPage() {
     }).catch(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    fetch('/api/worst-traders').then(r => r.json()).then(d => {
+      if (Array.isArray(d)) setWorstTraders(d);
+      setWorstLoading(false);
+    }).catch(() => setWorstLoading(false));
+  }, []);
+
   useEffect(() => { loadFollows(); }, [loadFollows]);
-  useEffect(() => { loadBlocklist(); }, [loadBlocklist]);
 
   // mirror any new trades from followed wallets when the page opens
   useEffect(() => {
@@ -120,28 +116,26 @@ export default function CopyPage() {
     loadFollows();
   }
 
-  async function block(wallet: string, name: string) {
-    if (!username) return;
-    await fetch('/api/blocklist', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, wallet, traderName: name }),
-    });
-    loadBlocklist();
-  }
-
-  async function unblock(wallet: string) {
-    if (!username) return;
-    await fetch('/api/blocklist', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, wallet }),
-    });
-    loadBlocklist();
-  }
-
   const followedWallets = new Set(follows.map(f => f.wallet.toLowerCase()));
-  const blockedWallets = new Set(blocklist.map(b => b.wallet.toLowerCase()));
+
+  const TRADER_SORT_OPTIONS = [
+    { value: 'pnl' as const,        label: 'P&L' },
+    { value: 'volume' as const,     label: 'Volume' },
+    { value: 'edge' as const,       label: 'Edge %' },
+    { value: 'avgBuySize' as const, label: 'Avg buy' },
+  ];
+
+  function sortTraders(list: TopTrader[], sort: typeof traderSort, dir: 'desc' | 'asc') {
+    return [...list].sort((a, b) => {
+      const edgeA = a.volume > 0 ? a.pnl / a.volume : 0;
+      const edgeB = b.volume > 0 ? b.pnl / b.volume : 0;
+      const val = sort === 'pnl' ? b.pnl - a.pnl
+        : sort === 'volume' ? b.volume - a.volume
+        : sort === 'avgBuySize' ? (b.avgBuySize ?? -1) - (a.avgBuySize ?? -1)
+        : edgeB - edgeA;
+      return dir === 'desc' ? val : -val;
+    });
+  }
 
   return (
     <main className="max-w-3xl mx-auto px-4 py-8 space-y-8">
@@ -260,49 +254,6 @@ export default function CopyPage() {
         </div>
       )}
 
-      {/* Do Not Copy */}
-      {username && blocklist.length > 0 && (
-        <div>
-          <h2 className="text-lg font-semibold text-white mb-1">
-            🚫 Do Not Copy <span className="text-zinc-500 text-sm font-normal">({blocklist.length})</span>
-          </h2>
-          <p className="text-zinc-600 text-xs mb-3">Traders you&apos;ve flagged. Stats shown so you remember why.</p>
-          <div className="space-y-2">
-            {blocklist.map(b => {
-              const t = traders.find(t => t.wallet.toLowerCase() === b.wallet.toLowerCase());
-              const edge = t && t.volume > 0 ? (t.pnl / t.volume) * 100 : null;
-              return (
-                <div key={b.id} className="bg-zinc-900 border border-red-900/40 rounded-xl p-4">
-                  <div className="flex items-center justify-between gap-3 mb-3">
-                    <div className="flex items-center gap-2 min-w-0">
-                      {t?.rank && <span className="text-zinc-600 font-mono text-xs flex-shrink-0">#{t.rank}</span>}
-                      <Link href={`/trader/${b.wallet}`} className="text-white text-sm font-semibold hover:text-blue-300 transition truncate">
-                        {b.traderName}
-                      </Link>
-                      <span className="text-zinc-700 font-mono text-xs flex-shrink-0">{b.wallet.slice(0, 6)}…{b.wallet.slice(-4)}</span>
-                    </div>
-                    <div className="flex items-center gap-3 flex-shrink-0">
-                      <span className="text-zinc-600 text-xs">blocked {timeAgo(b.createdAt)}</span>
-                      <button onClick={() => unblock(b.wallet)} className="text-xs text-zinc-600 hover:text-zinc-300 transition">unblock</button>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    <StatSlot label="P&L" value={t ? `+${fmtUsd(t.pnl)}` : '—'} color="text-green-400" />
-                    <StatSlot label="Volume" value={t ? fmtUsd(t.volume) : '—'} />
-                    <StatSlot
-                      label="Edge %"
-                      value={edge != null ? `${edge.toFixed(1)}%` : '—'}
-                      color={edge != null ? (edge >= 20 ? 'text-green-400' : edge >= 10 ? 'text-yellow-400' : 'text-zinc-300') : 'text-zinc-600'}
-                    />
-                    <StatSlot label="Avg buy" value={t?.avgBuySize != null ? `$${t.avgBuySize.toFixed(0)}` : '—'} sub="per trade" />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
       {/* Top traders */}
       <div>
         <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
@@ -311,12 +262,7 @@ export default function CopyPage() {
             <p className="text-zinc-600 text-xs">Real accounts, real money. Click a name for full profile + Trader Intel.</p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            {([
-              { value: 'pnl',        label: 'P&L' },
-              { value: 'volume',     label: 'Volume' },
-              { value: 'edge',       label: 'Edge %' },
-              { value: 'avgBuySize', label: 'Avg buy' },
-            ] as const).map(o => (
+            {TRADER_SORT_OPTIONS.map(o => (
               <button
                 key={o.value}
                 onClick={() => {
@@ -340,93 +286,147 @@ export default function CopyPage() {
           <div className="space-y-2">
             {Array.from({ length: 6 }).map((_, i) => <div key={i} className="bg-zinc-900 h-24 rounded-xl animate-pulse" />)}
           </div>
-        ) : (() => {
-          const sorted = [...traders].sort((a, b) => {
-            const edgeA = a.volume > 0 ? a.pnl / a.volume : 0;
-            const edgeB = b.volume > 0 ? b.pnl / b.volume : 0;
-            const val = traderSort === 'pnl' ? b.pnl - a.pnl
-              : traderSort === 'volume' ? b.volume - a.volume
-              : traderSort === 'avgBuySize' ? (b.avgBuySize ?? -1) - (a.avgBuySize ?? -1)
-              : edgeB - edgeA;
-            return traderSortDir === 'desc' ? val : -val;
-          });
+        ) : (
+          <div className="space-y-2">
+            {sortTraders(traders, traderSort, traderSortDir).map(t => {
+              const isFollowed = followedWallets.has(t.wallet.toLowerCase());
+              const follow = follows.find(f => f.wallet.toLowerCase() === t.wallet.toLowerCase());
+              const edge = t.volume > 0 ? (t.pnl / t.volume) * 100 : 0;
 
-          return (
-            <div className="space-y-2">
-              {sorted.map(t => {
-                const isFollowed = followedWallets.has(t.wallet.toLowerCase());
-                const isBlocked = blockedWallets.has(t.wallet.toLowerCase());
-                const follow = follows.find(f => f.wallet.toLowerCase() === t.wallet.toLowerCase());
-                const edge = t.volume > 0 ? (t.pnl / t.volume) * 100 : 0;
-
-                return (
-                  <div key={t.wallet} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-                    <div className="flex items-center gap-3 mb-3">
-                      <span className="text-zinc-600 font-mono text-xs w-6 flex-shrink-0">#{t.rank}</span>
-                      {t.profileImage ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={t.profileImage} alt="" className="w-8 h-8 rounded-full object-cover bg-zinc-800 flex-shrink-0"
-                          onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+              return (
+                <div key={t.wallet} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+                  <div className="flex items-center gap-3 mb-3">
+                    <span className="text-zinc-600 font-mono text-xs w-6 flex-shrink-0">#{t.rank}</span>
+                    {t.profileImage ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={t.profileImage} alt="" className="w-8 h-8 rounded-full object-cover bg-zinc-800 flex-shrink-0"
+                        onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                    ) : (
+                      <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-zinc-500 text-xs flex-shrink-0">
+                        {t.name[0]?.toUpperCase() ?? '?'}
+                      </div>
+                    )}
+                    <Link href={`/trader/${t.wallet}`} className="text-white text-sm font-semibold flex-1 truncate hover:text-blue-300 transition">
+                      {t.name}
+                    </Link>
+                    {username ? (
+                      isFollowed ? (
+                        <span className="text-xs text-blue-400 font-medium flex-shrink-0">✓ copying</span>
                       ) : (
-                        <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-zinc-500 text-xs flex-shrink-0">
-                          {t.name[0]?.toUpperCase() ?? '?'}
-                        </div>
-                      )}
-                      <Link href={`/trader/${t.wallet}`} className="text-white text-sm font-semibold flex-1 truncate hover:text-blue-300 transition">
-                        {t.name}
-                      </Link>
-                      {username ? (
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          {isFollowed ? (
-                            <span className="text-xs text-blue-400 font-medium">✓ copying</span>
-                          ) : isBlocked ? (
-                            <span className="text-xs text-red-400 font-medium">🚫 blocked</span>
-                          ) : (
-                            <button
-                              onClick={() => setModal({ wallet: t.wallet, name: t.name })}
-                              className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg font-semibold transition"
-                            >
-                              ⧉ Copy
-                            </button>
-                          )}
-                          {!isFollowed && (
-                            isBlocked ? (
-                              <button onClick={() => unblock(t.wallet)} className="text-xs text-zinc-600 hover:text-zinc-300 transition">unblock</button>
-                            ) : (
-                              <button onClick={() => block(t.wallet, t.name)} className="text-xs text-zinc-600 hover:text-red-400 transition" title="Add to Do Not Copy">🚫</button>
-                            )
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-xs text-zinc-600 flex-shrink-0">log in to copy</span>
-                      )}
-                    </div>
-
-                    <div className={`grid gap-2 ${follow ? 'grid-cols-2 sm:grid-cols-6' : 'grid-cols-2 sm:grid-cols-4'}`}>
-                      <StatSlot label="P&L" value={`+${fmtUsd(t.pnl)}`} color="text-green-400" />
-                      <StatSlot label="Volume" value={fmtUsd(t.volume)} />
-                      <StatSlot
-                        label="Edge %"
-                        value={`${edge.toFixed(1)}%`}
-                        color={edge >= 20 ? 'text-green-400' : edge >= 10 ? 'text-yellow-400' : 'text-zinc-300'}
-                        sub="PnL / volume"
-                      />
-                      <StatSlot
-                        label="Avg buy"
-                        value={t.avgBuySize != null ? `$${t.avgBuySize.toFixed(0)}` : '—'}
-                        sub="per trade"
-                      />
-                      {follow && <>
-                        <StatSlot label="$/trade" value={`$${follow.copyAmount}`} />
-                        <StatSlot label="Trades" value={String(follow.copiedTrades)} />
-                      </>}
-                    </div>
+                        <button
+                          onClick={() => setModal({ wallet: t.wallet, name: t.name })}
+                          className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg font-semibold transition flex-shrink-0"
+                        >
+                          ⧉ Copy
+                        </button>
+                      )
+                    ) : (
+                      <span className="text-xs text-zinc-600 flex-shrink-0">log in to copy</span>
+                    )}
                   </div>
-                );
-              })}
-            </div>
-          );
-        })()}
+
+                  <div className={`grid gap-2 ${follow ? 'grid-cols-2 sm:grid-cols-6' : 'grid-cols-2 sm:grid-cols-4'}`}>
+                    <StatSlot label="P&L" value={`+${fmtUsd(t.pnl)}`} color="text-green-400" />
+                    <StatSlot label="Volume" value={fmtUsd(t.volume)} />
+                    <StatSlot
+                      label="Edge %"
+                      value={`${edge.toFixed(1)}%`}
+                      color={edge >= 20 ? 'text-green-400' : edge >= 10 ? 'text-yellow-400' : 'text-zinc-300'}
+                      sub="PnL / volume"
+                    />
+                    <StatSlot
+                      label="Avg buy"
+                      value={t.avgBuySize != null ? `$${t.avgBuySize.toFixed(0)}` : '—'}
+                      sub="per trade"
+                    />
+                    {follow && <>
+                      <StatSlot label="$/trade" value={`$${follow.copyAmount}`} />
+                      <StatSlot label="Trades" value={String(follow.copiedTrades)} />
+                    </>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Do Not Copy */}
+      <div>
+        <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
+          <div>
+            <h2 className="text-lg font-semibold text-white mb-0.5">🚫 Do Not Copy</h2>
+            <p className="text-zinc-600 text-xs">Biggest losers on Polymarket right now. Avoid at all costs.</p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            {TRADER_SORT_OPTIONS.map(o => (
+              <button
+                key={o.value}
+                onClick={() => {
+                  if (worstSort === o.value) setWorstSortDir(d => d === 'desc' ? 'asc' : 'desc');
+                  else { setWorstSort(o.value); setWorstSortDir('asc'); }
+                }}
+                className={`text-xs px-2.5 py-1 rounded-full border transition flex items-center gap-1 ${
+                  worstSort === o.value
+                    ? 'bg-red-700 border-red-600 text-white'
+                    : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-500'
+                }`}
+              >
+                {o.label}
+                {worstSort === o.value && <span>{worstSortDir === 'desc' ? '↓' : '↑'}</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {worstLoading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 6 }).map((_, i) => <div key={i} className="bg-zinc-900 h-24 rounded-xl animate-pulse" />)}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {sortTraders(worstTraders, worstSort, worstSortDir).map(t => {
+              const edge = t.volume > 0 ? (t.pnl / t.volume) * 100 : 0;
+
+              return (
+                <div key={t.wallet} className="bg-zinc-900 border border-red-900/30 rounded-xl p-4">
+                  <div className="flex items-center gap-3 mb-3">
+                    <span className="text-zinc-600 font-mono text-xs w-6 flex-shrink-0">#{t.rank}</span>
+                    {t.profileImage ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={t.profileImage} alt="" className="w-8 h-8 rounded-full object-cover bg-zinc-800 flex-shrink-0"
+                        onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                    ) : (
+                      <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-zinc-500 text-xs flex-shrink-0">
+                        {t.name[0]?.toUpperCase() ?? '?'}
+                      </div>
+                    )}
+                    <Link href={`/trader/${t.wallet}`} className="text-white text-sm font-semibold flex-1 truncate hover:text-blue-300 transition">
+                      {t.name}
+                    </Link>
+                    <span className="text-xs text-red-400/70 font-medium flex-shrink-0">avoid</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <StatSlot label="P&L" value={fmtUsd(t.pnl)} color="text-red-400" />
+                    <StatSlot label="Volume" value={fmtUsd(t.volume)} />
+                    <StatSlot
+                      label="Edge %"
+                      value={`${edge.toFixed(1)}%`}
+                      color="text-red-400"
+                      sub="PnL / volume"
+                    />
+                    <StatSlot
+                      label="Avg buy"
+                      value={t.avgBuySize != null ? `$${t.avgBuySize.toFixed(0)}` : '—'}
+                      sub="per trade"
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <p className="text-zinc-600 text-xs leading-relaxed">

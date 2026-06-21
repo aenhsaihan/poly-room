@@ -75,16 +75,6 @@ export async function ensureSchema() {
   `;
   await sql`ALTER TABLE trades ADD COLUMN IF NOT EXISTS copied_from TEXT`;
   await sql`
-    CREATE TABLE IF NOT EXISTS blocklist (
-      id SERIAL PRIMARY KEY,
-      user_id INTEGER NOT NULL REFERENCES users(id),
-      wallet TEXT NOT NULL,
-      trader_name TEXT NOT NULL,
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      UNIQUE(user_id, wallet)
-    )
-  `;
-  await sql`
     CREATE TABLE IF NOT EXISTS meta (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL

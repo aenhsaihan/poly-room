@@ -167,6 +167,29 @@ export function shortWallet(w: string) {
   return w.length > 10 ? `${w.slice(0, 6)}…${w.slice(-4)}` : w;
 }
 
+export async function getWorstTraders(limit = 20): Promise<TopTrader[]> {
+  const res = await fetch(
+    `https://data-api.polymarket.com/v1/leaderboard?rankType=pnl&limit=${limit}&ascending=true`,
+    { next: { revalidate: 300 } }
+  );
+  if (!res.ok) return [];
+  const data = await res.json() as Record<string, unknown>[];
+  if (!Array.isArray(data)) return [];
+  return data.map(t => {
+    const wallet = (t.proxyWallet as string) || '';
+    const raw = (t.userName as string) || '';
+    const name = raw && !raw.startsWith('0x') ? raw : shortWallet(wallet);
+    return {
+      rank: Number(t.rank ?? 0),
+      wallet,
+      name,
+      pnl: Number(t.pnl ?? 0),
+      volume: Number(t.vol ?? 0),
+      profileImage: (t.profileImage as string) || '',
+    };
+  });
+}
+
 export async function getTopTraders(limit = 20): Promise<TopTrader[]> {
   const res = await fetch(
     `https://data-api.polymarket.com/v1/leaderboard?rankType=pnl&limit=${limit}`,
