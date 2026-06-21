@@ -145,7 +145,7 @@ export default function CopyPage() {
               {follows.map(f => (
                 <div key={f.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex flex-wrap items-center gap-3">
                   <div className="flex-1 min-w-[180px]">
-                    <p className="text-white text-sm font-semibold">⧉ {f.traderName}</p>
+                    <Link href={`/trader/${f.wallet}`} className="text-white text-sm font-semibold hover:text-blue-300 transition">⧉ {f.traderName}</Link>
                     <p className="text-zinc-600 text-xs font-mono">{f.wallet.slice(0, 6)}…{f.wallet.slice(-4)}</p>
                   </div>
                   <div className="text-xs text-zinc-400 space-y-0.5">
@@ -196,7 +196,7 @@ export default function CopyPage() {
                     </div>
                   )}
                   <div className="flex-1 min-w-0">
-                    <p className="text-white text-sm font-semibold truncate">{t.name}</p>
+                    <Link href={`/trader/${t.wallet}`} className="text-white text-sm font-semibold truncate hover:text-blue-300 transition block">{t.name}</Link>
                     <p className="text-zinc-500 text-xs">vol {fmtUsd(t.volume)}</p>
                   </div>
                   <div className="text-right flex-shrink-0">
