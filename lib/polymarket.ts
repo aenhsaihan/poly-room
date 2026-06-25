@@ -55,10 +55,16 @@ export interface MarketsQuery {
   offset?: number;
   order?: 'volume' | 'volume24hr' | 'liquidity' | 'endDate' | 'startDate';
   ascending?: boolean;
+  tagSlug?: string;
 }
 
 export async function getMarkets(opts: MarketsQuery = {}): Promise<Market[]> {
-  const { q, limit = 40, offset = 0, order = 'volume24hr', ascending = false } = opts;
+  const { q, limit = 40, offset = 0, order = 'volume24hr', ascending = false, tagSlug } = opts;
+
+  if (tagSlug) {
+    return getMarketsByTag(tagSlug, { limit, offset, order, ascending, q });
+  }
+
   const params = new URLSearchParams({
     active: 'true', closed: 'false',
     limit: String(Math.min(limit, 100)),
@@ -73,6 +79,59 @@ export async function getMarkets(opts: MarketsQuery = {}): Promise<Market[]> {
   if (!res.ok) throw new Error(`Gamma API ${res.status}`);
   const data = await res.json() as Record<string, unknown>[];
   return data.map(parse);
+}
+
+async function getMarketsByTag(tagSlug: string, opts: {
+  limit: number; offset: number; order: string; ascending: boolean; q?: string;
+}): Promise<Market[]> {
+  const { limit, offset, order, ascending, q } = opts;
+
+  // Map our sort options to event-level equivalents
+  const eventOrder = order === 'endDate' ? 'endDate'
+    : order === 'startDate' ? 'startDate'
+    : order === 'volume24hr' ? 'volume24hr'
+    : 'volume';
+
+  // Fetch enough events to cover offset+limit (events average ~10 active markets each)
+  const eventLimit = Math.min(100, Math.max(30, Math.ceil((offset + limit) / 8)));
+  const params = new URLSearchParams({
+    active: 'true', closed: 'false',
+    tag_slug: tagSlug,
+    limit: String(eventLimit),
+    order: eventOrder,
+    ascending: String(ascending),
+  });
+
+  const res = await fetch(`${GAMMA}/events?${params}`, {
+    headers: getHeaders(),
+    cache: 'no-store',
+  });
+  if (!res.ok) throw new Error(`Gamma events API ${res.status}`);
+  const events = await res.json() as Record<string, unknown>[];
+
+  // Flatten active markets from all events
+  const all: Market[] = [];
+  for (const event of events) {
+    const markets = (event.markets as Record<string, unknown>[]) ?? [];
+    for (const m of markets) {
+      if (!m.active || m.closed || m.archived) continue;
+      if (q && !String(m.question ?? '').toLowerCase().includes(q.toLowerCase())) continue;
+      all.push(parse(m));
+    }
+  }
+
+  // Sort within the flattened pool
+  all.sort((a, b) => {
+    let va = 0, vb = 0;
+    if (order === 'endDate') { va = new Date(a.endDate).getTime(); vb = new Date(b.endDate).getTime(); }
+    else if (order === 'startDate') { va = new Date(a.endDate).getTime(); vb = new Date(b.endDate).getTime(); }
+    else if (order === 'liquidity') { va = a.liquidity; vb = b.liquidity; }
+    else if (order === 'volume24hr') { va = a.volume24hr; vb = b.volume24hr; }
+    else { va = a.volume; vb = b.volume; }
+    return ascending ? va - vb : vb - va;
+  });
+
+  return all.slice(offset, offset + limit);
 }
 
 export interface PricePoint { t: number; p: number }

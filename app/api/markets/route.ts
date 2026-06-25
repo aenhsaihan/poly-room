@@ -10,6 +10,7 @@ export async function GET(req: NextRequest) {
     offset: Number(p.get('offset') ?? 0),
     order: (p.get('order') ?? 'volume24hr') as MarketsQuery['order'],
     ascending: p.get('ascending') === 'true',
+    tagSlug: p.get('tagSlug') ?? undefined,
   };
   try {
     const markets = await getMarkets(opts);
