@@ -65,13 +65,22 @@ export async function getMarkets(opts: MarketsQuery = {}): Promise<Market[]> {
     return getMarketsByTag(tagSlug, { limit, offset, order, ascending, q });
   }
 
+  // Polymarket stores volume/liquidity as strings; use the numeric variants for correct sort
+  const apiOrder = order === 'volume' ? 'volumeNum'
+    : order === 'liquidity' ? 'liquidityNum'
+    : order;
+
   const params = new URLSearchParams({
     active: 'true', closed: 'false',
     limit: String(Math.min(limit, 100)),
     offset: String(offset),
-    order, ascending: String(ascending),
+    order: apiOrder, ascending: String(ascending),
   });
   if (q) params.set('q', q);
+  // For "Ending Soon", exclude markets whose end date has already passed but aren't resolved yet
+  if (order === 'endDate' && ascending) {
+    params.set('end_date_min', new Date().toISOString().slice(0, 10));
+  }
   const res = await fetch(`${GAMMA}/markets?${params}`, {
     headers: getHeaders(),
     cache: 'no-store',
