@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql, ensureSchema } from '@/lib/db';
 
-// List a user's follows, with how many trades each follow has copied
 export async function GET(req: NextRequest) {
   const username = req.nextUrl.searchParams.get('username');
   if (!username) return NextResponse.json({ error: 'username required' }, { status: 400 });
   await ensureSchema();
   const { rows } = await sql`
-    SELECT f.id, f.wallet, f.trader_name, f.copy_amount, f.created_at, f.last_synced_at,
+    SELECT f.id, f.wallet, f.trader_name, f.copy_pct, f.created_at, f.last_synced_at,
            COUNT(t.id)::int AS copied_trades,
            COALESCE(SUM(CASE WHEN t.side = 'BUY' THEN t.amount ELSE 0 END), 0) AS copied_spent
     FROM follows f
@@ -21,7 +20,7 @@ export async function GET(req: NextRequest) {
     id: Number(r.id),
     wallet: r.wallet as string,
     traderName: r.trader_name as string,
-    copyAmount: Number(r.copy_amount),
+    copyPct: Number(r.copy_pct ?? 100),
     createdAt: r.created_at as string,
     lastSyncedAt: r.last_synced_at as string,
     copiedTrades: Number(r.copied_trades),
@@ -30,25 +29,24 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const { username, wallet, traderName, copyAmount } = await req.json() as {
-    username: string; wallet: string; traderName: string; copyAmount: number;
+  const { username, wallet, traderName, copyPct } = await req.json() as {
+    username: string; wallet: string; traderName: string; copyPct: number;
   };
   if (!username?.trim() || !wallet?.trim() || !traderName?.trim())
     return NextResponse.json({ error: 'username, wallet, traderName required' }, { status: 400 });
-  const amt = Number(copyAmount);
-  if (!amt || amt < 1 || amt > 250)
-    return NextResponse.json({ error: 'copyAmount must be $1–$250' }, { status: 400 });
+  const pct = Number(copyPct);
+  if (!pct || pct < 1 || pct > 100)
+    return NextResponse.json({ error: 'copyPct must be 1–100' }, { status: 400 });
 
   await ensureSchema();
   const { rows: users } = await sql`SELECT id FROM users WHERE LOWER(username) = LOWER(${username})`;
   if (!users[0]) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
-  // start the cursor at "now" so we mirror only trades made after the follow
   const now = Math.floor(Date.now() / 1000);
   const { rows } = await sql`
-    INSERT INTO follows (user_id, wallet, trader_name, copy_amount, last_synced_ts)
-    VALUES (${users[0].id as number}, ${wallet.trim().toLowerCase()}, ${traderName.trim()}, ${amt}, ${now})
-    ON CONFLICT (user_id, wallet) DO UPDATE SET copy_amount = ${amt}, trader_name = ${traderName.trim()}
+    INSERT INTO follows (user_id, wallet, trader_name, copy_amount, copy_pct, last_synced_ts)
+    VALUES (${users[0].id as number}, ${wallet.trim().toLowerCase()}, ${traderName.trim()}, 0, ${pct}, ${now})
+    ON CONFLICT (user_id, wallet) DO UPDATE SET copy_pct = ${pct}, trader_name = ${traderName.trim()}
     RETURNING id
   `;
   return NextResponse.json({ ok: true, id: Number(rows[0].id) });

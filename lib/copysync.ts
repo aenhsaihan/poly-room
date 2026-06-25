@@ -15,6 +15,7 @@ interface FollowRow {
   wallet: string;
   trader_name: string;
   copy_amount: number;
+  copy_pct: number;
   last_synced_ts: number;
   created_at: string;
 }
@@ -57,8 +58,9 @@ async function syncOneFollow(follow: FollowRow, marketCache: Map<string, { id: s
       const question = market.question || t.title;
 
       if (t.side === 'BUY') {
-        const amount = Math.min(Number(follow.copy_amount), balance);
-        if (amount < 0.5) continue; // out of cash — skip, don't fail the sync
+        const traderAmount = t.size * t.price;
+        const amount = Math.min(traderAmount * (follow.copy_pct / 100), balance);
+        if (amount < 0.01) continue; // too small or out of cash
         const shares = amount / t.price;
         await client.query(`UPDATE users SET balance = balance - $1 WHERE id = $2`, [amount, follow.user_id]);
         balance -= amount;
@@ -123,12 +125,12 @@ async function syncFollowRows(rows: FollowRow[]): Promise<SyncResult> {
 // Sync all follows of one user (throttled per follow)
 export async function syncUserFollows(username: string): Promise<SyncResult> {
   const { rows } = await sql`
-    SELECT f.id, f.user_id, f.wallet, f.trader_name, f.copy_amount, f.last_synced_ts, f.created_at
+    SELECT f.id, f.user_id, f.wallet, f.trader_name, f.copy_amount, f.copy_pct, f.last_synced_ts, f.created_at
     FROM follows f JOIN users u ON u.id = f.user_id
     WHERE LOWER(u.username) = LOWER(${username})
       AND f.last_synced_at < NOW() - INTERVAL '60 seconds'
   `;
-  return syncFollowRows(rows.map(r => ({ ...r, copy_amount: Number(r.copy_amount), last_synced_ts: Number(r.last_synced_ts) }) as FollowRow));
+  return syncFollowRows(rows.map(r => ({ ...r, copy_amount: Number(r.copy_amount), copy_pct: Number(r.copy_pct ?? 100), last_synced_ts: Number(r.last_synced_ts) }) as FollowRow));
 }
 
 // Sync everyone's follows, at most once per 5 minutes globally
@@ -142,10 +144,10 @@ export async function syncAllFollows(): Promise<SyncResult | null> {
     ON CONFLICT (key) DO UPDATE SET value = ${String(Date.now())}
   `;
   const { rows } = await sql`
-    SELECT id, user_id, wallet, trader_name, copy_amount, last_synced_ts, created_at
+    SELECT id, user_id, wallet, trader_name, copy_amount, copy_pct, last_synced_ts, created_at
     FROM follows
     ORDER BY last_synced_at ASC
     LIMIT 40
   `;
-  return syncFollowRows(rows.map(r => ({ ...r, copy_amount: Number(r.copy_amount), last_synced_ts: Number(r.last_synced_ts) }) as FollowRow));
+  return syncFollowRows(rows.map(r => ({ ...r, copy_amount: Number(r.copy_amount), copy_pct: Number(r.copy_pct ?? 100), last_synced_ts: Number(r.last_synced_ts) }) as FollowRow));
 }

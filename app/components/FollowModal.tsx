@@ -11,7 +11,7 @@ interface Props {
 
 export default function FollowModal({ wallet, traderName, onClose, onFollowed }: Props) {
   const { username } = useUser();
-  const [amount, setAmount] = useState('10');
+  const [pct, setPct] = useState(100);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
@@ -22,7 +22,7 @@ export default function FollowModal({ wallet, traderName, onClose, onFollowed }:
     const res = await fetch('/api/follows', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, wallet, traderName, copyAmount: Number(amount) }),
+      body: JSON.stringify({ username, wallet, traderName, copyPct: pct }),
     });
     const data = await res.json();
     setLoading(false);
@@ -30,6 +30,11 @@ export default function FollowModal({ wallet, traderName, onClose, onFollowed }:
     setDone(true);
     onFollowed?.();
   }
+
+  const examples = [5, 50, 200, 1000].map(traderBet => ({
+    traderBet,
+    yourCopy: (traderBet * pct / 100).toFixed(2),
+  }));
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
@@ -43,44 +48,61 @@ export default function FollowModal({ wallet, traderName, onClose, onFollowed }:
         {done ? (
           <div className="p-5 space-y-4">
             <p className="text-green-400 text-sm font-medium">
-              ✓ You&apos;re now copying {traderName}.
+              ✓ You&apos;re now copying {traderName} at {pct}%.
             </p>
             <p className="text-zinc-400 text-xs leading-relaxed">
-              From now on, every real trade they make on Polymarket gets mirrored into your paper
-              portfolio at their actual fill price — ${amount} per buy, full exit when they sell.
-              Mirrored trades land automatically as you use the app.
+              Every real trade they make gets mirrored into your paper portfolio at their actual fill price —
+              you copy {pct}% of each dollar they spend. When they sell, you exit at their price.
             </p>
             <button onClick={onClose} className="w-full bg-zinc-700 hover:bg-zinc-600 text-white font-semibold py-2.5 rounded-lg transition text-sm">
               Done
             </button>
           </div>
         ) : (
-          <div className="p-5 space-y-4">
+          <div className="p-5 space-y-5">
             <div className="bg-zinc-800/60 rounded-lg p-3 text-xs text-zinc-400 leading-relaxed space-y-1">
-              <p>• When they <span className="text-green-400 font-semibold">buy</span>, you buy the same outcome at their price with a fixed amount.</p>
-              <p>• When they <span className="text-red-400 font-semibold">sell</span> a market you copied, you exit that position at their price.</p>
+              <p>• When they <span className="text-green-400 font-semibold">buy</span>, you copy the same outcome at their price for your chosen % of their bet.</p>
+              <p>• When they <span className="text-red-400 font-semibold">sell</span>, you exit your mirrored position at their price.</p>
               <p>• Only trades made <span className="text-white">after you follow</span> are copied.</p>
             </div>
 
             <div>
-              <label className="text-zinc-400 text-xs mb-1 block">Paper dollars per copied buy</label>
-              <div className="flex gap-2 items-center">
-                <span className="text-zinc-400 text-lg">$</span>
-                <input
-                  type="number" min="1" max="250" step="1"
-                  className="flex-1 bg-zinc-800 border border-zinc-600 rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-blue-500"
-                  value={amount}
-                  onChange={e => setAmount(e.target.value)}
-                />
+              <div className="flex items-center justify-between mb-3">
+                <label className="text-zinc-400 text-xs">Copy percentage</label>
+                <span className="text-white font-mono font-bold text-lg">{pct}%</span>
               </div>
-              <div className="flex gap-1.5 mt-2">
-                {[5, 10, 25, 50].map(n => (
-                  <button key={n} onClick={() => setAmount(String(n))}
-                    className={`text-xs px-2.5 py-1 rounded transition ${
-                      amount === String(n) ? 'bg-blue-600 text-white' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400'
+              <input
+                type="range" min="1" max="100" step="1"
+                value={pct}
+                onChange={e => setPct(Number(e.target.value))}
+                className="w-full accent-blue-500"
+              />
+              <div className="flex justify-between text-zinc-600 text-xs mt-1">
+                <span>1%</span>
+                <span>50%</span>
+                <span>100%</span>
+              </div>
+              <div className="flex gap-2 mt-3">
+                {[10, 25, 50, 100].map(n => (
+                  <button key={n} onClick={() => setPct(n)}
+                    className={`flex-1 text-xs py-1.5 rounded-lg transition font-medium ${
+                      pct === n ? 'bg-blue-600 text-white' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400'
                     }`}>
-                    ${n}
+                    {n}%
                   </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Dollar examples */}
+            <div className="bg-zinc-800/40 rounded-lg p-3">
+              <p className="text-zinc-500 text-xs mb-2">If they bet…  you copy</p>
+              <div className="grid grid-cols-4 gap-1.5">
+                {examples.map(ex => (
+                  <div key={ex.traderBet} className="text-center">
+                    <p className="text-zinc-500 text-xs">${ex.traderBet}</p>
+                    <p className="text-white font-mono text-xs font-semibold">${ex.yourCopy}</p>
+                  </div>
                 ))}
               </div>
             </div>
@@ -90,10 +112,10 @@ export default function FollowModal({ wallet, traderName, onClose, onFollowed }:
             {username ? (
               <button
                 onClick={follow}
-                disabled={loading || !amount || Number(amount) < 1}
+                disabled={loading}
                 className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-semibold py-2.5 rounded-lg transition text-sm"
               >
-                {loading ? 'Following…' : `Copy ${traderName} at $${amount || '?'} per trade`}
+                {loading ? 'Following…' : `Copy ${traderName} at ${pct}%`}
               </button>
             ) : (
               <p className="text-zinc-500 text-sm text-center">Set a username via the nav bar first.</p>

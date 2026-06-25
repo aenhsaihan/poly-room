@@ -74,6 +74,7 @@ export async function ensureSchema() {
     )
   `;
   await sql`ALTER TABLE trades ADD COLUMN IF NOT EXISTS copied_from TEXT`;
+  await sql`ALTER TABLE follows ADD COLUMN IF NOT EXISTS copy_pct NUMERIC(5,2) NOT NULL DEFAULT 100`;
   await sql`
     CREATE TABLE IF NOT EXISTS meta (
       key TEXT PRIMARY KEY,
