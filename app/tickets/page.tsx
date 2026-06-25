@@ -102,6 +102,10 @@ export default function TicketsPage() {
     setResolving(null);
   }
 
+  function updateTicket(id: number, patch: Partial<Ticket>) {
+    setTickets(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t));
+  }
+
   const open = tickets.filter(t => t.status !== 'resolved');
   const resolved = tickets.filter(t => t.status === 'resolved');
 
@@ -189,7 +193,7 @@ export default function TicketsPage() {
           <p className="text-zinc-600 text-sm bg-zinc-900 border border-zinc-800 rounded-xl p-4">No open tickets.</p>
         ) : (
           <div className="space-y-2">
-            {open.map(t => <TicketCard key={t.id} ticket={t} expanded={expanded} setExpanded={setExpanded} reviewing={reviewing} resolving={resolving} onReview={review} onResolve={resolve} />)}
+            {open.map(t => <TicketCard key={t.id} ticket={t} expanded={expanded} setExpanded={setExpanded} reviewing={reviewing} resolving={resolving} onReview={review} onResolve={resolve} username={username ?? ''} onUpdate={updateTicket} />)}
           </div>
         )}
       </div>
@@ -201,7 +205,7 @@ export default function TicketsPage() {
             Resolved <span className="text-zinc-500 text-sm font-normal">({resolved.length})</span>
           </h2>
           <div className="space-y-2">
-            {resolved.map(t => <TicketCard key={t.id} ticket={t} expanded={expanded} setExpanded={setExpanded} reviewing={reviewing} resolving={resolving} onReview={review} onResolve={resolve} />)}
+            {resolved.map(t => <TicketCard key={t.id} ticket={t} expanded={expanded} setExpanded={setExpanded} reviewing={reviewing} resolving={resolving} onReview={review} onResolve={resolve} username={username ?? ''} onUpdate={updateTicket} />)}
           </div>
         </div>
       )}
@@ -209,7 +213,7 @@ export default function TicketsPage() {
   );
 }
 
-function TicketCard({ ticket: t, expanded, setExpanded, reviewing, resolving, onReview, onResolve }: {
+function TicketCard({ ticket: t, expanded, setExpanded, reviewing, resolving, onReview, onResolve, username, onUpdate }: {
   ticket: Ticket;
   expanded: number | null;
   setExpanded: (id: number | null) => void;
@@ -217,8 +221,28 @@ function TicketCard({ ticket: t, expanded, setExpanded, reviewing, resolving, on
   resolving: number | null;
   onReview: (t: Ticket) => void;
   onResolve: (t: Ticket) => void;
+  username: string;
+  onUpdate: (id: number, patch: Partial<Ticket>) => void;
 }) {
+  const [reply, setReply] = useState('');
+  const [replying, setReplying] = useState(false);
   const isOpen = expanded === t.id;
+
+  async function submitReply() {
+    if (!reply.trim()) return;
+    setReplying(true);
+    await fetch(`/api/tickets/${t.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ appendBody: reply }),
+    });
+    onUpdate(t.id, {
+      body: t.body + '\n\n---\n**Follow-up:** ' + reply.trim(),
+      status: 'open',
+    });
+    setReply('');
+    setReplying(false);
+  }
 
   return (
     <div className={`bg-zinc-900 border rounded-xl overflow-hidden transition ${
@@ -246,6 +270,26 @@ function TicketCard({ ticket: t, expanded, setExpanded, reviewing, resolving, on
             <div className="bg-zinc-800 rounded-lg p-3 border-l-2 border-blue-500">
               <p className="text-zinc-500 text-xs mb-1 font-semibold uppercase tracking-wider">Claude's response</p>
               <p className="text-zinc-200 text-sm leading-relaxed whitespace-pre-wrap">{t.ai_response}</p>
+            </div>
+          )}
+
+          {t.status === 'needs_info' && username === t.username && (
+            <div className="space-y-2">
+              <p className="text-yellow-400 text-xs font-medium">Add more details to reopen this ticket:</p>
+              <textarea
+                value={reply}
+                onChange={e => setReply(e.target.value)}
+                placeholder="Provide the requested details…"
+                rows={3}
+                className="w-full bg-zinc-800 border border-yellow-700/50 rounded-lg px-3 py-2 text-white text-sm placeholder-zinc-600 focus:outline-none focus:border-yellow-500 resize-none"
+              />
+              <button
+                onClick={submitReply}
+                disabled={replying || !reply.trim()}
+                className="text-xs bg-yellow-700 hover:bg-yellow-600 disabled:opacity-40 text-white px-3 py-1.5 rounded-lg transition font-medium"
+              >
+                {replying ? 'Sending…' : 'Send reply'}
+              </button>
             </div>
           )}
 

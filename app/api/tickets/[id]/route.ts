@@ -3,7 +3,9 @@ import { sql, ensureSchema } from '@/lib/db';
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { status, ai_response } = await req.json() as { status?: string; ai_response?: string };
+  const { status, ai_response, appendBody } = await req.json() as {
+    status?: string; ai_response?: string; appendBody?: string;
+  };
   await ensureSchema();
 
   if (status) {
@@ -13,6 +15,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
   if (ai_response !== undefined) {
     await sql`UPDATE tickets SET ai_response = ${ai_response}, updated_at = NOW() WHERE id = ${Number(id)}`;
+  }
+  if (appendBody) {
+    await sql`
+      UPDATE tickets
+      SET body = body || ${'\n\n---\n**Follow-up:** ' + appendBody.trim()},
+          status = 'open',
+          updated_at = NOW()
+      WHERE id = ${Number(id)}
+    `;
   }
   return NextResponse.json({ ok: true });
 }
