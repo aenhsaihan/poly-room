@@ -24,6 +24,7 @@ export default function Nav() {
     { href: '/leaderboard', icon: '🏆', label: 'Leaders' },
     { href: '/agents',      icon: '🤖', label: 'Agents' },
     { href: '/copy',        icon: '⧉',  label: 'Copy' },
+    { href: '/tickets',     icon: '🎫', label: 'Tickets' },
     ...(username ? [{ href: `/portfolio/${username}`, icon: '👤', label: 'Portfolio' }] : []),
   ];
 
@@ -40,6 +41,7 @@ export default function Nav() {
             {topLink('/leaderboard', 'Leaderboard')}
             {topLink('/agents', 'Agents')}
             {topLink('/copy', 'Copy')}
+            {topLink('/tickets', 'Tickets')}
             {username && topLink(`/portfolio/${username}`, 'My Portfolio')}
           </div>
         </div>

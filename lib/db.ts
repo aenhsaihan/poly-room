@@ -76,6 +76,19 @@ export async function ensureSchema() {
   await sql`ALTER TABLE trades ADD COLUMN IF NOT EXISTS copied_from TEXT`;
   await sql`ALTER TABLE follows ADD COLUMN IF NOT EXISTS copy_pct NUMERIC(5,2) NOT NULL DEFAULT 100`;
   await sql`
+    CREATE TABLE IF NOT EXISTS tickets (
+      id SERIAL PRIMARY KEY,
+      username TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'bug',
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      ai_response TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+  await sql`
     CREATE TABLE IF NOT EXISTS meta (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
