@@ -26,7 +26,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ use
     FROM trades
     WHERE user_id = ${user.id}
     GROUP BY market_id, market_question, outcome
-    HAVING SUM(CASE WHEN side = 'SELL' THEN amount ELSE 0 END) > 0
+    HAVING COUNT(CASE WHEN side = 'SELL' THEN 1 END) > 0
     ORDER BY MAX(CASE WHEN side = 'SELL' THEN created_at END) DESC
     LIMIT 50
   `;
