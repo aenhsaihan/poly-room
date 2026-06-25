@@ -12,13 +12,37 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ use
     SELECT * FROM positions WHERE user_id = ${user.id} AND shares > 0.0001
     ORDER BY market_question ASC
   `;
-  const { rows: trades } = await sql`
-    SELECT * FROM trades WHERE user_id = ${user.id}
-    ORDER BY created_at DESC LIMIT 50
+
+  // Closed positions: grouped by market+outcome where a SELL trade exists
+  const { rows: closed } = await sql`
+    SELECT
+      market_id,
+      market_question,
+      outcome,
+      SUM(CASE WHEN side = 'BUY'  THEN amount ELSE 0 END) AS cost,
+      SUM(CASE WHEN side = 'SELL' THEN amount ELSE 0 END) AS proceeds,
+      MAX(CASE WHEN side = 'SELL' THEN created_at END)    AS closed_at,
+      MAX(copied_from)                                     AS copied_from
+    FROM trades
+    WHERE user_id = ${user.id}
+    GROUP BY market_id, market_question, outcome
+    HAVING SUM(CASE WHEN side = 'SELL' THEN amount ELSE 0 END) > 0
+    ORDER BY MAX(CASE WHEN side = 'SELL' THEN created_at END) DESC
+    LIMIT 50
   `;
+
   return NextResponse.json({
     user: { ...user, balance: Number(user.balance) },
     positions: positions.map(p => ({ ...p, shares: Number(p.shares), avg_price: Number(p.avg_price) })),
-    trades: trades.map(t => ({ ...t, shares: Number(t.shares), price: Number(t.price), amount: Number(t.amount) })),
+    closed: closed.map(c => ({
+      market_id: c.market_id as string,
+      market_question: c.market_question as string,
+      outcome: c.outcome as string,
+      cost: Number(c.cost),
+      proceeds: Number(c.proceeds),
+      pnl: Number(c.proceeds) - Number(c.cost),
+      closed_at: c.closed_at as string,
+      copied_from: (c.copied_from as string) || null,
+    })),
   });
 }

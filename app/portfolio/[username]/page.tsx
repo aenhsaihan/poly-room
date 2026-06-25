@@ -10,29 +10,27 @@ interface Position {
   shares: number;
   avg_price: number;
 }
-interface Trade {
+interface ClosedPosition {
   market_id: string;
   market_question: string;
   outcome: string;
-  shares: number;
-  price: number;
-  side: string;
-  amount: number;
-  created_at: string;
-  copied_from?: string | null;
+  cost: number;
+  proceeds: number;
+  pnl: number;
+  closed_at: string;
+  copied_from: string | null;
 }
 interface User { username: string; balance: number }
 
 function fmtDate(iso: string) {
   const d = new Date(iso);
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) +
-    ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 export default function PortfolioPage({ params }: { params: Promise<{ username: string }> }) {
   const { username } = use(params);
   const { username: me } = useUser();
-  const [data, setData] = useState<{ user: User; positions: Position[]; trades: Trade[] } | null>(null);
+  const [data, setData] = useState<{ user: User; positions: Position[]; closed: ClosedPosition[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ settled: number; payout: number } | null>(null);
@@ -72,11 +70,12 @@ export default function PortfolioPage({ params }: { params: Promise<{ username: 
     </main>
   );
 
-  const { user, positions, trades } = data;
+  const { user, positions, closed } = data;
   const isMe = user.username.toLowerCase() === me?.toLowerCase();
   const positionValue = positions.reduce((s, p) => s + p.shares * p.avg_price, 0);
   const total = user.balance + positionValue;
   const pnl = total - 1000;
+  const realizedPnl = closed.reduce((s, c) => s + c.pnl, 0);
 
   return (
     <main className="max-w-2xl mx-auto px-4 py-8 space-y-8">
@@ -91,40 +90,46 @@ export default function PortfolioPage({ params }: { params: Promise<{ username: 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <Stat label="Total Value" value={`$${total.toFixed(2)}`} />
           <Stat label="Cash" value={`$${user.balance.toFixed(2)}`} color="text-zinc-300" />
-          <Stat label="In Positions" value={`$${positionValue.toFixed(2)}`} color="text-zinc-300" />
+          <Stat label="Unrealized" value={`$${positionValue.toFixed(2)}`} color="text-zinc-300" />
           <Stat
-            label="P&L"
+            label="Total P&L"
             value={`${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`}
             color={pnl >= 0 ? 'text-green-400' : 'text-red-400'}
           />
         </div>
       </div>
 
-      {positions.length > 0 && (
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold text-white">
-              Open Positions <span className="text-zinc-500 text-sm font-normal">({positions.length})</span>
-            </h2>
-            {isMe && (
-              <div className="flex items-center gap-2">
-                {syncResult && (
-                  <span className="text-xs text-zinc-400">
-                    {syncResult.settled === 0
-                      ? 'No closed positions found'
-                      : `Settled ${syncResult.settled} position${syncResult.settled !== 1 ? 's' : ''} · +$${syncResult.payout.toFixed(2)}`}
-                  </span>
-                )}
-                <button
-                  onClick={handleSync}
-                  disabled={syncing}
-                  className="text-xs px-3 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white disabled:opacity-50 transition"
-                >
-                  {syncing ? 'Syncing…' : '⟳ Sync'}
-                </button>
-              </div>
-            )}
-          </div>
+      {/* Open Positions */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold text-white">
+            Open Positions <span className="text-zinc-500 text-sm font-normal">({positions.length})</span>
+          </h2>
+          {isMe && (
+            <div className="flex items-center gap-2">
+              {syncResult && (
+                <span className="text-xs text-zinc-400">
+                  {syncResult.settled === 0
+                    ? 'No closed positions found'
+                    : `Settled ${syncResult.settled} · +$${syncResult.payout.toFixed(2)}`}
+                </span>
+              )}
+              <button
+                onClick={handleSync}
+                disabled={syncing}
+                className="text-xs px-3 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white disabled:opacity-50 transition"
+              >
+                {syncing ? 'Syncing…' : '⟳ Sync'}
+              </button>
+            </div>
+          )}
+        </div>
+
+        {positions.length === 0 ? (
+          <p className="text-zinc-600 text-sm bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+            No open positions.{isMe && <> Head to <Link href="/" className="text-blue-400 underline">Markets</Link> to start trading.</>}
+          </p>
+        ) : (
           <div className="space-y-2">
             {positions.map((p, i) => {
               const value = p.shares * p.avg_price;
@@ -150,58 +155,72 @@ export default function PortfolioPage({ params }: { params: Promise<{ username: 
                       style={{ width: `${Math.min(pct, 100)}%` }}
                     />
                   </div>
-                  <p className="text-zinc-600 text-xs mt-1">{pct.toFixed(0)}% of position value</p>
+                  <p className="text-zinc-600 text-xs mt-1">{pct.toFixed(0)}% of open portfolio</p>
                 </Link>
               );
             })}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {trades.length > 0 && (
-        <div>
-          <h2 className="text-lg font-semibold text-white mb-3">
-            Trade History <span className="text-zinc-500 text-sm font-normal">({trades.length})</span>
+      {/* Closed Positions */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold text-white">
+            Closed Positions <span className="text-zinc-500 text-sm font-normal">({closed.length})</span>
           </h2>
-          <div className="space-y-1.5">
-            {trades.map((t, i) => (
-              <Link key={i} href={`/market/${t.market_id}`} className="block bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 hover:border-zinc-600 transition group">
-                <div className="flex items-center gap-3">
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded flex-shrink-0 ${
-                    t.side === 'BUY' ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'
-                  }`}>
-                    {t.side}
-                  </span>
-                  <span className={`text-xs font-semibold flex-shrink-0 ${
-                    t.outcome.toLowerCase() === 'yes' ? 'text-green-400' : 'text-red-400'
-                  }`}>
-                    {t.outcome}
-                  </span>
-                  <span className="text-zinc-300 text-xs flex-1 truncate group-hover:text-blue-300 transition">{t.market_question}</span>
-                  {t.copied_from && (
-                    <span className="text-xs text-blue-400/80 flex-shrink-0" title={`Copied from ${t.copied_from}`}>
-                      ⧉ {t.copied_from}
-                    </span>
-                  )}
-                  <span className={`font-mono text-xs flex-shrink-0 font-semibold ${t.side === 'BUY' ? 'text-red-400' : 'text-green-400'}`}>
-                    {t.side === 'BUY' ? '-' : '+'}${t.amount.toFixed(2)}
-                  </span>
-                </div>
-                <div className="flex justify-between mt-1.5 text-zinc-600 text-xs">
-                  <span>{t.shares.toFixed(2)} shares @ {(t.price * 100).toFixed(0)}¢</span>
-                  <span>{fmtDate(t.created_at)}</span>
-                </div>
-              </Link>
-            ))}
-          </div>
+          {closed.length > 0 && (
+            <span className={`text-sm font-mono font-semibold ${realizedPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+              {realizedPnl >= 0 ? '+' : ''}${realizedPnl.toFixed(2)} realized
+            </span>
+          )}
         </div>
-      )}
 
-      {positions.length === 0 && trades.length === 0 && (
-        <p className="text-zinc-500 text-center py-8">
-          No trades yet.{isMe && <> Head to <Link href="/" className="text-blue-400 underline">Markets</Link> to start!</>}
-        </p>
-      )}
+        {closed.length === 0 ? (
+          <p className="text-zinc-600 text-sm bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+            No closed positions yet — they show up here after a market resolves or you sell.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {closed.map((c, i) => {
+              const won = c.pnl >= 0;
+              const isYes = c.outcome.toLowerCase() === 'yes';
+              return (
+                <Link key={i} href={`/market/${c.market_id}`} className={`block rounded-xl p-4 border transition hover:border-zinc-600 group ${
+                  won ? 'bg-green-950/20 border-green-900/40' : 'bg-red-950/20 border-red-900/40'
+                }`}>
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <p className="text-white text-sm leading-snug flex-1 group-hover:text-blue-300 transition">{c.market_question}</p>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded ${
+                        isYes ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'
+                      }`}>
+                        {c.outcome}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-3 text-zinc-400">
+                      <span>Paid <span className="font-mono text-zinc-300">${c.cost.toFixed(2)}</span></span>
+                      <span>→</span>
+                      <span>Got back <span className="font-mono text-zinc-300">${c.proceeds.toFixed(2)}</span></span>
+                      {c.copied_from && (
+                        <span className="text-blue-400/70">⧉ {c.copied_from}</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      <span className="text-zinc-600">{fmtDate(c.closed_at)}</span>
+                      <span className={`font-mono font-bold text-sm ${won ? 'text-green-400' : 'text-red-400'}`}>
+                        {won ? '+' : ''}${c.pnl.toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </main>
   );
 }
