@@ -105,24 +105,22 @@ export default function PortfolioPage({ params }: { params: Promise<{ username: 
           <h2 className="text-lg font-semibold text-white">
             Open Positions <span className="text-zinc-500 text-sm font-normal">({positions.length})</span>
           </h2>
-          {isMe && (
-            <div className="flex items-center gap-2">
-              {syncResult && (
-                <span className="text-xs text-zinc-400">
-                  {syncResult.settled === 0
-                    ? 'No closed positions found'
-                    : `Settled ${syncResult.settled} · +$${syncResult.payout.toFixed(2)}`}
-                </span>
-              )}
-              <button
-                onClick={handleSync}
-                disabled={syncing}
-                className="text-xs px-3 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white disabled:opacity-50 transition"
-              >
-                {syncing ? 'Syncing…' : '⟳ Sync'}
-              </button>
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            {syncResult && (
+              <span className="text-xs text-zinc-400">
+                {syncResult.settled === 0
+                  ? 'No closed positions found'
+                  : `Settled ${syncResult.settled} · +$${syncResult.payout.toFixed(2)}`}
+              </span>
+            )}
+            <button
+              onClick={handleSync}
+              disabled={syncing}
+              className="text-xs px-3 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white disabled:opacity-50 transition"
+            >
+              {syncing ? 'Syncing…' : '⟳ Sync'}
+            </button>
+          </div>
         </div>
 
         {positions.length === 0 ? (

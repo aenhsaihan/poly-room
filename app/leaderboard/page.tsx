@@ -15,20 +15,57 @@ export default function LeaderboardPage() {
   const { username } = useUser();
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadLeaderboard = () =>
     fetch('/api/leaderboard')
       .then(r => r.json())
       .then(d => { if (Array.isArray(d)) setRows(d); setLoading(false); })
       .catch(() => setLoading(false));
-  }, []);
+
+  useEffect(() => { loadLeaderboard(); }, []);
+
+  async function handleSync() {
+    setSyncing(true);
+    setSyncMsg(null);
+    try {
+      const res = await fetch('/api/leaderboard/sync', { method: 'POST' });
+      const d = await res.json();
+      setSyncMsg(
+        d.settled === 0
+          ? 'All positions up to date — no closed markets found.'
+          : `Settled ${d.settled} position${d.settled !== 1 ? 's' : ''} across ${d.users} user${d.users !== 1 ? 's' : ''} · +$${d.payout.toFixed(2)} paid out`
+      );
+      setLoading(true);
+      loadLeaderboard();
+    } catch {
+      setSyncMsg('Sync failed — try again.');
+    }
+    setSyncing(false);
+  }
 
   return (
     <main className="max-w-2xl mx-auto px-4 py-8 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-white mb-1">🏆 Leaderboard</h1>
-        <p className="text-zinc-400 text-sm">App users ranked by total paper portfolio value. Everyone starts with $1,000.</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-white mb-1">🏆 Leaderboard</h1>
+          <p className="text-zinc-400 text-sm">App users ranked by total paper portfolio value. Everyone starts with $1,000.</p>
+        </div>
+        <button
+          onClick={handleSync}
+          disabled={syncing}
+          className="flex-shrink-0 text-xs px-3 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white disabled:opacity-50 transition"
+        >
+          {syncing ? 'Syncing…' : '⟳ Sync all'}
+        </button>
       </div>
+
+      {syncMsg && (
+        <div className="bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-xs text-zinc-300">
+          {syncMsg}
+        </div>
+      )}
 
       {loading ? (
         <div className="space-y-2">
