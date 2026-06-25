@@ -18,7 +18,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="min-h-full bg-zinc-950 text-white antialiased">
         <UserProvider>
           <Nav />
-          {children}
+          <div className="pb-16 sm:pb-0">
+            {children}
+          </div>
         </UserProvider>
       </body>
     </html>
