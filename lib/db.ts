@@ -89,6 +89,22 @@ export async function ensureSchema() {
     )
   `;
   await sql`
+    CREATE TABLE IF NOT EXISTS stop_losses (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      market_id TEXT NOT NULL,
+      market_question TEXT NOT NULL,
+      outcome TEXT NOT NULL,
+      trail_pct NUMERIC(5,2) NOT NULL DEFAULT 10,
+      peak_price NUMERIC(10,6) NOT NULL,
+      active BOOLEAN NOT NULL DEFAULT true,
+      triggered_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(user_id, market_id, outcome)
+    )
+  `;
+  await sql`
     CREATE TABLE IF NOT EXISTS strategies (
       id SERIAL PRIMARY KEY,
       username TEXT NOT NULL,

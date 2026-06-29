@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, use } from 'react';
+import { useEffect, useState, use, useCallback } from 'react';
 import Link from 'next/link';
 import { useUser } from '../../components/UserProvider';
 
@@ -20,6 +20,14 @@ interface ClosedPosition {
   closed_at: string;
   copied_from: string | null;
 }
+interface StopLoss {
+  id: number;
+  market_id: string;
+  outcome: string;
+  trail_pct: number;
+  peak_price: number;
+  active: boolean;
+}
 interface User { username: string; balance: number }
 
 function fmtDate(iso: string) {
@@ -31,16 +39,25 @@ export default function PortfolioPage({ params }: { params: Promise<{ username: 
   const { username } = use(params);
   const { username: me } = useUser();
   const [data, setData] = useState<{ user: User; positions: Position[]; closed: ClosedPosition[] } | null>(null);
+  const [stops, setStops] = useState<StopLoss[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ settled: number; payout: number } | null>(null);
 
-  const loadPortfolio = () =>
+  const loadPortfolio = useCallback(() =>
     fetch(`/api/portfolio/${encodeURIComponent(username)}`)
       .then(r => r.json())
-      .then(d => { setData(d); setLoading(false); });
+      .then(d => { setData(d); setLoading(false); })
+  , [username]);
 
-  useEffect(() => { loadPortfolio(); }, [username]);
+  const loadStops = useCallback(() => {
+    if (!me || me.toLowerCase() !== username.toLowerCase()) return;
+    fetch(`/api/stop-losses?username=${encodeURIComponent(username)}`)
+      .then(r => r.json())
+      .then(d => { if (Array.isArray(d)) setStops(d.filter((s: StopLoss) => s.active)); });
+  }, [username, me]);
+
+  useEffect(() => { loadPortfolio(); loadStops(); }, [loadPortfolio, loadStops]);
 
   async function handleSync() {
     setSyncing(true);
@@ -133,28 +150,19 @@ export default function PortfolioPage({ params }: { params: Promise<{ username: 
               const value = p.shares * p.avg_price;
               const pct = positionValue > 0 ? (value / positionValue) * 100 : 0;
               const isYes = p.outcome.toLowerCase() === 'yes';
+              const stop = stops.find(s => s.market_id === p.market_id && s.outcome.toLowerCase() === p.outcome.toLowerCase());
               return (
-                <Link key={i} href={`/market/${p.market_id}`} className="block bg-zinc-900 border border-zinc-800 rounded-xl p-4 hover:border-zinc-600 transition group">
-                  <div className="flex items-start justify-between gap-3 mb-2">
-                    <p className="text-white text-sm leading-snug flex-1 group-hover:text-blue-300 transition">{p.market_question}</p>
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded flex-shrink-0 ${
-                      isYes ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'
-                    }`}>
-                      {p.outcome}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs text-zinc-400">
-                    <span>{p.shares.toFixed(2)} shares @ <span className="font-mono">{(p.avg_price * 100).toFixed(0)}¢</span></span>
-                    <span className="font-mono text-white font-medium">${value.toFixed(2)}</span>
-                  </div>
-                  <div className="mt-2 h-1 bg-zinc-800 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full ${isYes ? 'bg-green-500' : 'bg-red-500'}`}
-                      style={{ width: `${Math.min(pct, 100)}%` }}
-                    />
-                  </div>
-                  <p className="text-zinc-600 text-xs mt-1">{pct.toFixed(0)}% of open portfolio</p>
-                </Link>
+                <PositionCard
+                  key={i}
+                  position={p}
+                  value={value}
+                  pct={pct}
+                  isYes={isYes}
+                  stop={stop ?? null}
+                  isMe={isMe}
+                  username={username}
+                  onStopChange={loadStops}
+                />
               );
             })}
           </div>
@@ -220,6 +228,127 @@ export default function PortfolioPage({ params }: { params: Promise<{ username: 
         )}
       </div>
     </main>
+  );
+}
+
+function PositionCard({ position: p, value, pct, isYes, stop, isMe, username, onStopChange }: {
+  position: Position;
+  value: number;
+  pct: number;
+  isYes: boolean;
+  stop: StopLoss | null;
+  isMe: boolean;
+  username: string;
+  onStopChange: () => void;
+}) {
+  const [showForm, setShowForm] = useState(false);
+  const [trailPct, setTrailPct] = useState(stop?.trail_pct ?? 10);
+  const [saving, setSaving] = useState(false);
+
+  const stopLevel = stop ? stop.peak_price * (1 - stop.trail_pct / 100) : null;
+
+  async function saveStop() {
+    setSaving(true);
+    // Fetch current price from the market
+    const res = await fetch(`/api/markets/${p.market_id}`);
+    const market = await res.json();
+    const outcomeIdx = (market.outcomes as string[]).findIndex(
+      (o: string) => o.toLowerCase() === p.outcome.toLowerCase()
+    );
+    const currentPrice = outcomeIdx >= 0 ? market.outcomePrices[outcomeIdx] : p.avg_price;
+
+    await fetch('/api/stop-losses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username,
+        marketId: p.market_id,
+        marketQuestion: p.market_question,
+        outcome: p.outcome,
+        trailPct,
+        currentPrice,
+      }),
+    });
+    setSaving(false);
+    setShowForm(false);
+    onStopChange();
+  }
+
+  async function removeStop() {
+    if (!stop) return;
+    await fetch(`/api/stop-losses/${stop.id}`, { method: 'DELETE' });
+    onStopChange();
+  }
+
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 hover:border-zinc-600 transition">
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <Link href={`/market/${p.market_id}`} className="text-white text-sm leading-snug flex-1 hover:text-blue-300 transition">
+          {p.market_question}
+        </Link>
+        <span className={`text-xs font-bold px-2 py-0.5 rounded flex-shrink-0 ${
+          isYes ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'
+        }`}>
+          {p.outcome}
+        </span>
+      </div>
+      <div className="flex items-center justify-between text-xs text-zinc-400 mb-2">
+        <span>{p.shares.toFixed(2)} shares @ <span className="font-mono">{(p.avg_price * 100).toFixed(0)}¢</span></span>
+        <span className="font-mono text-white font-medium">${value.toFixed(2)}</span>
+      </div>
+      <div className="h-1 bg-zinc-800 rounded-full overflow-hidden mb-1">
+        <div
+          className={`h-full rounded-full ${isYes ? 'bg-green-500' : 'bg-red-500'}`}
+          style={{ width: `${Math.min(pct, 100)}%` }}
+        />
+      </div>
+      <div className="flex items-center justify-between mt-2">
+        <p className="text-zinc-600 text-xs">{pct.toFixed(0)}% of open portfolio</p>
+
+        {isMe && (
+          <div className="flex items-center gap-2">
+            {stop && stopLevel !== null && (
+              <span className="text-xs text-orange-400/80 font-mono">
+                🛑 stop {stop.trail_pct}% · level {(stopLevel * 100).toFixed(0)}¢
+              </span>
+            )}
+            {isMe && !showForm && (
+              <button
+                onClick={() => setShowForm(true)}
+                className="text-xs text-zinc-500 hover:text-orange-400 transition"
+              >
+                {stop ? 'Edit stop' : '+ Set stop'}
+              </button>
+            )}
+            {stop && !showForm && (
+              <button onClick={removeStop} className="text-xs text-zinc-600 hover:text-red-400 transition">✕</button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {showForm && isMe && (
+        <div className="mt-3 pt-3 border-t border-zinc-800 flex items-center gap-3">
+          <label className="text-xs text-zinc-400">Trailing stop</label>
+          <input
+            type="number"
+            min={1} max={50} step={1}
+            value={trailPct}
+            onChange={e => setTrailPct(Number(e.target.value))}
+            className="w-16 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-white text-xs text-center focus:outline-none focus:border-orange-500"
+          />
+          <span className="text-zinc-500 text-xs">% below peak</span>
+          <button
+            onClick={saveStop}
+            disabled={saving}
+            className="text-xs bg-orange-700 hover:bg-orange-600 disabled:opacity-40 text-white px-3 py-1 rounded-lg transition ml-auto"
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+          <button onClick={() => setShowForm(false)} className="text-xs text-zinc-600 hover:text-white transition">Cancel</button>
+        </div>
+      )}
+    </div>
   );
 }
 
