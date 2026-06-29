@@ -1,6 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import type { Market } from '@/lib/polymarket';
+import AgentDesk from '../components/AgentDesk';
 
 interface RunRow {
   id: number;
@@ -51,6 +53,10 @@ function verdict(run: RunRow): { label: string; color: string } | null {
 export default function AgentsPage() {
   const [runs, setRuns] = useState<RunRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [urlInput, setUrlInput] = useState('');
+  const [resolving, setResolving] = useState(false);
+  const [resolveError, setResolveError] = useState<string | null>(null);
+  const [resolvedMarket, setResolvedMarket] = useState<Market | null>(null);
 
   useEffect(() => {
     fetch('/api/agent-desk')
@@ -58,6 +64,22 @@ export default function AgentsPage() {
       .then(d => { if (Array.isArray(d)) setRuns(d); setLoading(false); })
       .catch(() => setLoading(false));
   }, []);
+
+  async function resolveUrl() {
+    const trimmed = urlInput.trim();
+    if (!trimmed) return;
+    setResolving(true);
+    setResolveError(null);
+    setResolvedMarket(null);
+    const res = await fetch(`/api/markets/resolve-url?url=${encodeURIComponent(trimmed)}`);
+    const d = await res.json();
+    if (!res.ok) {
+      setResolveError(d.error ?? 'Could not find that market.');
+    } else {
+      setResolvedMarket(d as Market);
+    }
+    setResolving(false);
+  }
 
   return (
     <main className="max-w-3xl mx-auto px-4 py-8 space-y-8">
@@ -69,6 +91,38 @@ export default function AgentsPage() {
           This page is the desk&apos;s public track record — every call anyone has run, and how it&apos;s aging
           against the real price.
         </p>
+      </div>
+
+      {/* Paste a Polymarket URL */}
+      <div className="rounded-2xl border border-zinc-700 bg-zinc-900 p-5 space-y-4">
+        <p className="text-white font-semibold text-sm">Analyze any Polymarket market</p>
+        <p className="text-zinc-400 text-xs">Paste a Polymarket URL — the desk will run on it directly.</p>
+        <div className="flex gap-2">
+          <input
+            type="url"
+            value={urlInput}
+            onChange={e => { setUrlInput(e.target.value); setResolveError(null); setResolvedMarket(null); }}
+            onKeyDown={e => e.key === 'Enter' && resolveUrl()}
+            placeholder="https://polymarket.com/event/world-cup-winner/will-spain-win…"
+            className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-blue-500 min-w-0"
+          />
+          <button
+            onClick={resolveUrl}
+            disabled={resolving || !urlInput.trim()}
+            className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-sm font-semibold px-4 py-2 rounded-lg transition flex-shrink-0"
+          >
+            {resolving ? 'Looking up…' : 'Load'}
+          </button>
+        </div>
+        {resolveError && <p className="text-red-400 text-xs">{resolveError}</p>}
+        {resolvedMarket && (
+          <div className="space-y-2">
+            <p className="text-zinc-400 text-xs">
+              Found: <span className="text-white font-medium">{resolvedMarket.question}</span>
+            </p>
+            <AgentDesk market={resolvedMarket} />
+          </div>
+        )}
       </div>
 
       {/* How it works */}
