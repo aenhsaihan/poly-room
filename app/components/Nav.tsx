@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { useUser } from './UserProvider';
+import type { TradingMode } from './UserProvider';
 
 const MORE_ITEMS = [
   { href: '/tickets',    icon: '🎫', label: 'Tickets' },
@@ -10,7 +11,7 @@ const MORE_ITEMS = [
 ];
 
 export default function Nav() {
-  const { username, balance, setUsername } = useUser();
+  const { username, balance, setUsername, tradingMode, setTradingMode } = useUser();
   const path = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
 
@@ -55,9 +56,30 @@ export default function Nav() {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          {/* Paper / Live toggle */}
+          <div className="flex items-center bg-zinc-800 rounded-full p-0.5 border border-zinc-700">
+            {(['paper', 'live'] as TradingMode[]).map(m => (
+              <button
+                key={m}
+                onClick={() => setTradingMode(m)}
+                className={`text-xs font-semibold px-2.5 py-1 rounded-full transition ${
+                  tradingMode === m
+                    ? m === 'live'
+                      ? 'bg-green-600 text-white'
+                      : 'bg-zinc-600 text-white'
+                    : 'text-zinc-500 hover:text-zinc-300'
+                }`}
+              >
+                {m === 'paper' ? 'Paper' : '● Live'}
+              </button>
+            ))}
+          </div>
+
           {username ? (
             <>
-              <span className="text-green-400 font-mono text-sm font-semibold">${balance.toFixed(2)}</span>
+              {tradingMode === 'paper' && (
+                <span className="text-green-400 font-mono text-sm font-semibold">${balance.toFixed(2)}</span>
+              )}
               <button
                 onClick={() => {
                   localStorage.removeItem('poly_username');

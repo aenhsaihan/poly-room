@@ -10,7 +10,7 @@ interface Props {
 }
 
 export default function BetModal({ market, onClose, defaultOutcome }: Props) {
-  const { username, balance, refreshBalance } = useUser();
+  const { username, balance, refreshBalance, tradingMode } = useUser();
   const [outcome, setOutcome] = useState(
     defaultOutcome && market.outcomes.includes(defaultOutcome) ? defaultOutcome : market.outcomes[0]
   );
@@ -139,13 +139,29 @@ export default function BetModal({ market, onClose, defaultOutcome }: Props) {
           {error && <p className="text-red-400 text-sm">{error}</p>}
           {result && <p className="text-green-400 text-sm">{result}</p>}
 
-          <button
-            onClick={submit}
-            disabled={loading || !amount || isNaN(Number(amount)) || Number(amount) <= 0}
-            className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-semibold py-2.5 rounded-lg transition"
-          >
-            {loading ? 'Placing...' : `Buy ${outcome}`}
-          </button>
+          {tradingMode === 'live' ? (
+            <div className="space-y-2">
+              <div className="text-xs text-green-400/80 bg-green-950/30 border border-green-900/40 rounded-lg px-3 py-2">
+                ● Live mode — this will execute a real trade on Polymarket
+              </div>
+              <a
+                href={`https://polymarket.com/search?q=${encodeURIComponent(market.question)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full flex items-center justify-center gap-2 bg-green-700 hover:bg-green-600 text-white font-semibold py-2.5 rounded-lg transition"
+              >
+                Trade on Polymarket →
+              </a>
+            </div>
+          ) : (
+            <button
+              onClick={submit}
+              disabled={loading || !amount || isNaN(Number(amount)) || Number(amount) <= 0}
+              className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-semibold py-2.5 rounded-lg transition"
+            >
+              {loading ? 'Placing...' : `Buy ${outcome}`}
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -20,6 +20,16 @@ interface ClosedPosition {
   closed_at: string;
   copied_from: string | null;
 }
+interface LivePosition {
+  market: string;
+  asset: string;
+  outcome: string;
+  size: number;
+  avgPrice: number;
+  curPrice: number;
+  cashPnl: number;
+  percentPnl: number;
+}
 interface StopLoss {
   id: number;
   market_id: string;
@@ -37,10 +47,13 @@ function fmtDate(iso: string) {
 
 export default function PortfolioPage({ params }: { params: Promise<{ username: string }> }) {
   const { username } = use(params);
-  const { username: me } = useUser();
+  const { username: me, tradingMode, liveWallet, setLiveWallet } = useUser();
   const [data, setData] = useState<{ user: User; positions: Position[]; closed: ClosedPosition[] } | null>(null);
   const [stops, setStops] = useState<StopLoss[]>([]);
   const [loading, setLoading] = useState(true);
+  const [livePositions, setLivePositions] = useState<LivePosition[]>([]);
+  const [liveLoading, setLiveLoading] = useState(false);
+  const [walletInput, setWalletInput] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ settled: number; payout: number } | null>(null);
 
@@ -57,7 +70,33 @@ export default function PortfolioPage({ params }: { params: Promise<{ username: 
       .then(d => { if (Array.isArray(d)) setStops(d.filter((s: StopLoss) => s.active)); });
   }, [username, me]);
 
+  const loadLivePositions = useCallback((wallet: string) => {
+    if (!wallet) return;
+    setLiveLoading(true);
+    fetch(`/api/live-positions?wallet=${encodeURIComponent(wallet)}`)
+      .then(r => r.json())
+      .then(d => {
+        const positions = Array.isArray(d) ? d : (d.positions ?? []);
+        setLivePositions(positions.map((p: Record<string, unknown>) => ({
+          market: String(p.title ?? p.market ?? ''),
+          asset: String(p.asset ?? ''),
+          outcome: String(p.outcome ?? 'YES'),
+          size: Number(p.size ?? 0),
+          avgPrice: Number(p.avgPrice ?? p.avg_price ?? 0),
+          curPrice: Number(p.curPrice ?? p.current_price ?? 0),
+          cashPnl: Number(p.cashPnl ?? p.cash_pnl ?? 0),
+          percentPnl: Number(p.percentPnl ?? p.percent_pnl ?? 0),
+        })));
+      })
+      .catch(() => {})
+      .finally(() => setLiveLoading(false));
+  }, []);
+
   useEffect(() => { loadPortfolio(); loadStops(); }, [loadPortfolio, loadStops]);
+
+  useEffect(() => {
+    if (tradingMode === 'live' && liveWallet) loadLivePositions(liveWallet);
+  }, [tradingMode, liveWallet, loadLivePositions]);
 
   async function handleSync() {
     setSyncing(true);
@@ -115,6 +154,76 @@ export default function PortfolioPage({ params }: { params: Promise<{ username: 
           />
         </div>
       </div>
+
+      {/* Live positions section */}
+      {tradingMode === 'live' && isMe && (
+        <div className="bg-green-950/20 border border-green-900/40 rounded-xl p-5 space-y-4">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+            <h2 className="text-green-300 font-semibold text-sm">Live Polymarket Positions</h2>
+          </div>
+          {!liveWallet ? (
+            <div className="space-y-3">
+              <p className="text-zinc-400 text-xs">Enter your Polymarket wallet address to see your real positions.</p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={walletInput}
+                  onChange={e => setWalletInput(e.target.value)}
+                  placeholder="0x..."
+                  className="flex-1 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-white text-xs font-mono focus:outline-none focus:border-green-500"
+                />
+                <button
+                  onClick={() => {
+                    const w = walletInput.trim();
+                    if (/^0x[0-9a-fA-F]{40}$/.test(w)) {
+                      setLiveWallet(w);
+                      loadLivePositions(w);
+                    }
+                  }}
+                  disabled={!/^0x[0-9a-fA-F]{40}$/.test(walletInput.trim())}
+                  className="text-xs bg-green-700 hover:bg-green-600 disabled:opacity-40 text-white px-3 py-2 rounded-lg transition font-medium"
+                >
+                  Connect
+                </button>
+              </div>
+            </div>
+          ) : liveLoading ? (
+            <div className="space-y-2">
+              {[1, 2].map(i => <div key={i} className="h-12 bg-zinc-900/50 rounded-lg animate-pulse" />)}
+            </div>
+          ) : livePositions.length === 0 ? (
+            <div>
+              <p className="text-zinc-500 text-xs mb-2">No open positions for <span className="font-mono text-zinc-400">{liveWallet.slice(0, 6)}…{liveWallet.slice(-4)}</span></p>
+              <button onClick={() => { setLiveWallet(''); setWalletInput(''); }} className="text-xs text-zinc-600 hover:text-zinc-400 transition">Disconnect wallet</button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-zinc-500 text-xs font-mono">{liveWallet.slice(0, 6)}…{liveWallet.slice(-4)}</p>
+                <button onClick={() => { setLiveWallet(''); setWalletInput(''); setLivePositions([]); }} className="text-xs text-zinc-600 hover:text-zinc-400 transition">Disconnect</button>
+              </div>
+              {livePositions.map((p, i) => {
+                const pnlPos = p.cashPnl >= 0;
+                return (
+                  <div key={i} className="bg-zinc-900/60 border border-zinc-800 rounded-lg p-3">
+                    <p className="text-white text-xs leading-snug mb-1.5 line-clamp-2">{p.market || 'Unknown market'}</p>
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2 text-zinc-400">
+                        <span className={`font-bold px-1.5 py-0.5 rounded text-xs ${p.outcome.toLowerCase() === 'yes' ? 'bg-green-900/60 text-green-300' : 'bg-red-900/60 text-red-300'}`}>{p.outcome}</span>
+                        <span>{p.size.toFixed(2)} shares @ <span className="font-mono">{(p.avgPrice * 100).toFixed(0)}¢</span></span>
+                      </div>
+                      <span className={`font-mono font-semibold ${pnlPos ? 'text-green-400' : 'text-red-400'}`}>
+                        {pnlPos ? '+' : ''}${p.cashPnl.toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Open Positions */}
       <div>

@@ -1,14 +1,24 @@
 'use client';
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 
+export type TradingMode = 'paper' | 'live';
+
 interface UserCtx {
   username: string | null;
   balance: number;
   setUsername: (u: string) => void;
   refreshBalance: () => void;
+  tradingMode: TradingMode;
+  setTradingMode: (m: TradingMode) => void;
+  liveWallet: string | null;
+  setLiveWallet: (w: string) => void;
 }
 
-const Ctx = createContext<UserCtx>({ username: null, balance: 1000, setUsername: () => {}, refreshBalance: () => {} });
+const Ctx = createContext<UserCtx>({
+  username: null, balance: 1000, setUsername: () => {}, refreshBalance: () => {},
+  tradingMode: 'paper', setTradingMode: () => {},
+  liveWallet: null, setLiveWallet: () => {},
+});
 
 export function useUser() { return useContext(Ctx); }
 
@@ -16,6 +26,8 @@ export default function UserProvider({ children }: { children: ReactNode }) {
   const [username, setUsernameState] = useState<string | null>(null);
   const [balance, setBalance] = useState(1000);
   const [showModal, setShowModal] = useState(false);
+  const [tradingMode, setTradingModeState] = useState<TradingMode>('paper');
+  const [liveWallet, setLiveWalletState] = useState<string | null>(null);
 
   async function loadUser(name: string) {
     const res = await fetch('/api/users', {
@@ -25,7 +37,6 @@ export default function UserProvider({ children }: { children: ReactNode }) {
     });
     const u = await res.json();
     setBalance(u.balance ?? 1000);
-    // mirror any new copy-trades from followed wallets, then refresh the balance
     fetch('/api/copy/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -49,6 +60,12 @@ export default function UserProvider({ children }: { children: ReactNode }) {
     const stored = localStorage.getItem('poly_username');
     if (stored) { setUsernameState(stored); loadUser(stored); }
     else setShowModal(true);
+
+    const storedMode = localStorage.getItem('poly_trading_mode') as TradingMode | null;
+    if (storedMode === 'live') setTradingModeState('live');
+
+    const storedWallet = localStorage.getItem('poly_live_wallet');
+    if (storedWallet) setLiveWalletState(storedWallet);
   }, []);
 
   function setUsername(name: string) {
@@ -58,8 +75,18 @@ export default function UserProvider({ children }: { children: ReactNode }) {
     loadUser(name);
   }
 
+  function setTradingMode(m: TradingMode) {
+    localStorage.setItem('poly_trading_mode', m);
+    setTradingModeState(m);
+  }
+
+  function setLiveWallet(w: string) {
+    localStorage.setItem('poly_live_wallet', w);
+    setLiveWalletState(w);
+  }
+
   return (
-    <Ctx.Provider value={{ username, balance, setUsername, refreshBalance }}>
+    <Ctx.Provider value={{ username, balance, setUsername, refreshBalance, tradingMode, setTradingMode, liveWallet, setLiveWallet }}>
       {children}
       {showModal && <UsernameModal onSubmit={setUsername} />}
     </Ctx.Provider>
