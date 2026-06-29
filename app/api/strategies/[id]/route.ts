@@ -17,6 +17,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (body.ai_review !== undefined) {
     await sql`UPDATE strategies SET ai_review = ${body.ai_review}, updated_at = NOW() WHERE id = ${Number(id)}`;
   }
+  if (body.appendRules) {
+    await sql`
+      UPDATE strategies
+      SET rules = rules || ${'\n\n---\n**Reply:** ' + (body.appendRules as string).trim()},
+          updated_at = NOW()
+      WHERE id = ${Number(id)}
+    `;
+  }
   return NextResponse.json({ ok: true });
 }
 

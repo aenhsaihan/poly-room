@@ -80,6 +80,10 @@ export default function StrategiesPage() {
     setStrategies(prev => prev.map(x => x.id === s.id ? { ...x, enabled: !x.enabled } : x));
   }
 
+  function updateStrategy(id: number, patch: Partial<Strategy>) {
+    setStrategies(prev => prev.map(x => x.id === id ? { ...x, ...patch } : x));
+  }
+
   const mine = strategies.filter(s => s.username === username);
   const others = strategies.filter(s => s.username !== username);
 
@@ -161,6 +165,7 @@ export default function StrategiesPage() {
                 setExpanded={setExpanded}
                 onToggle={toggleEnabled}
                 isOwner
+                onUpdate={updateStrategy}
               />
             ))}
           </div>
@@ -191,6 +196,7 @@ export default function StrategiesPage() {
                 setExpanded={setExpanded}
                 onToggle={toggleEnabled}
                 isOwner={false}
+                onUpdate={updateStrategy}
               />
             ))}
           </div>
@@ -200,14 +206,30 @@ export default function StrategiesPage() {
   );
 }
 
-function StrategyCard({ strategy: s, expanded, setExpanded, onToggle, isOwner }: {
+function StrategyCard({ strategy: s, expanded, setExpanded, onToggle, isOwner, onUpdate }: {
   strategy: Strategy;
   expanded: number | null;
   setExpanded: (id: number | null) => void;
   onToggle: (s: Strategy) => void;
   isOwner: boolean;
+  onUpdate: (id: number, patch: Partial<Strategy>) => void;
 }) {
+  const [reply, setReply] = useState('');
+  const [replying, setReplying] = useState(false);
   const isOpen = expanded === s.id;
+
+  async function submitReply() {
+    if (!reply.trim()) return;
+    setReplying(true);
+    await fetch(`/api/strategies/${s.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ appendRules: reply }),
+    });
+    onUpdate(s.id, { rules: s.rules + '\n\n---\n**Reply:** ' + reply.trim() });
+    setReply('');
+    setReplying(false);
+  }
 
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
@@ -250,6 +272,26 @@ function StrategyCard({ strategy: s, expanded, setExpanded, onToggle, isOwner }:
             <div className="bg-zinc-800 rounded-lg p-3 border-l-2 border-blue-500">
               <p className="text-zinc-500 text-xs font-semibold uppercase tracking-wider mb-1">Claude's review</p>
               <p className="text-zinc-200 text-sm leading-relaxed whitespace-pre-wrap">{s.ai_review}</p>
+            </div>
+          )}
+
+          {s.ai_review && isOwner && (
+            <div className="space-y-2">
+              <p className="text-zinc-400 text-xs font-medium">Reply to Claude's questions:</p>
+              <textarea
+                value={reply}
+                onChange={e => setReply(e.target.value)}
+                placeholder="Answer the questions above so Claude can build your strategy…"
+                rows={3}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm placeholder-zinc-600 focus:outline-none focus:border-blue-500 resize-none"
+              />
+              <button
+                onClick={submitReply}
+                disabled={replying || !reply.trim()}
+                className="text-xs bg-blue-700 hover:bg-blue-600 disabled:opacity-40 text-white px-3 py-1.5 rounded-lg transition font-medium"
+              >
+                {replying ? 'Sending…' : 'Send reply'}
+              </button>
             </div>
           )}
         </div>
