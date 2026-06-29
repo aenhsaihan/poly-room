@@ -216,7 +216,28 @@ function StrategyCard({ strategy: s, expanded, setExpanded, onToggle, isOwner, o
 }) {
   const [reply, setReply] = useState('');
   const [replying, setReplying] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
+  const [activating, setActivating] = useState(false);
   const isOpen = expanded === s.id;
+
+  async function review() {
+    setReviewing(true);
+    const res = await fetch(`/api/strategies/${s.id}/review`, { method: 'POST' });
+    const d = await res.json();
+    if (res.ok && d.ai_review) onUpdate(s.id, { ai_review: d.ai_review });
+    setReviewing(false);
+  }
+
+  async function activate() {
+    setActivating(true);
+    await fetch(`/api/strategies/${s.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'active' }),
+    });
+    onUpdate(s.id, { status: 'active' });
+    setActivating(false);
+  }
 
   async function submitReply() {
     if (!reply.trim()) return;
@@ -247,18 +268,38 @@ function StrategyCard({ strategy: s, expanded, setExpanded, onToggle, isOwner, o
           <span className="text-zinc-600 text-xs flex-shrink-0">{isOpen ? '▲' : '▼'}</span>
         </button>
 
-        {isOwner && (
-          <button
-            onClick={() => onToggle(s)}
-            className={`flex-shrink-0 text-xs px-3 py-1.5 rounded-lg font-medium transition ${
-              s.enabled
-                ? 'bg-green-800 hover:bg-red-800 text-green-200 hover:text-red-200'
-                : 'bg-zinc-700 hover:bg-green-800 text-zinc-400 hover:text-green-200'
-            }`}
-          >
-            {s.enabled ? 'On' : 'Off'}
-          </button>
-        )}
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {s.status === 'pending' && (
+            <button
+              onClick={review}
+              disabled={reviewing}
+              className="text-xs px-2.5 py-1.5 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-zinc-300 disabled:opacity-50 transition font-medium"
+            >
+              {reviewing ? '…' : 'Review'}
+            </button>
+          )}
+          {s.status === 'pending' && (
+            <button
+              onClick={activate}
+              disabled={activating}
+              className="text-xs px-2.5 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-600 text-white disabled:opacity-50 transition font-medium"
+            >
+              {activating ? '…' : 'Activate'}
+            </button>
+          )}
+          {isOwner && (
+            <button
+              onClick={() => onToggle(s)}
+              className={`text-xs px-3 py-1.5 rounded-lg font-medium transition ${
+                s.enabled
+                  ? 'bg-green-800 hover:bg-red-800 text-green-200 hover:text-red-200'
+                  : 'bg-zinc-700 hover:bg-green-800 text-zinc-400 hover:text-green-200'
+              }`}
+            >
+              {s.enabled ? 'On' : 'Off'}
+            </button>
+          )}
+        </div>
       </div>
 
       {isOpen && (

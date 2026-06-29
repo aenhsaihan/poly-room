@@ -18,6 +18,8 @@ export default function BetModal({ market, onClose, defaultOutcome }: Props) {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [trailStop, setTrailStop] = useState(false);
+  const [trailPct, setTrailPct] = useState(10);
 
   const outcomeIdx = market.outcomes.indexOf(outcome);
   const price = market.outcomePrices[outcomeIdx] ?? 0.5;
@@ -38,6 +40,16 @@ export default function BetModal({ market, onClose, defaultOutcome }: Props) {
     setLoading(false);
     if (!res.ok) { setError(data.error); return; }
     refreshBalance();
+    if (trailStop) {
+      await fetch('/api/stop-losses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username, marketId: market.id, marketQuestion: market.question,
+          outcome, trailPct, currentPrice: price,
+        }),
+      });
+    }
     setResult(`Bought ${data.shares.toFixed(2)} ${outcome} shares. New balance: $${data.newBalance.toFixed(2)}`);
     setAmount('');
   }
@@ -98,6 +110,30 @@ export default function BetModal({ market, onClose, defaultOutcome }: Props) {
                 </button>
               ))}
             </div>
+          </div>
+
+          <div className="flex items-center gap-3 py-1">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={trailStop}
+                onChange={e => setTrailStop(e.target.checked)}
+                className="accent-orange-500 w-4 h-4"
+              />
+              <span className="text-zinc-400 text-xs">Set trailing stop loss</span>
+            </label>
+            {trailStop && (
+              <div className="flex items-center gap-1.5 ml-auto">
+                <input
+                  type="number"
+                  min={1} max={50} step={1}
+                  value={trailPct}
+                  onChange={e => setTrailPct(Number(e.target.value))}
+                  className="w-14 bg-zinc-800 border border-zinc-600 rounded px-2 py-1 text-white text-xs text-center focus:outline-none focus:border-orange-500"
+                />
+                <span className="text-zinc-500 text-xs">% below peak</span>
+              </div>
+            )}
           </div>
 
           {error && <p className="text-red-400 text-sm">{error}</p>}
