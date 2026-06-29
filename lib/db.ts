@@ -89,6 +89,20 @@ export async function ensureSchema() {
     )
   `;
   await sql`
+    CREATE TABLE IF NOT EXISTS strategies (
+      id SERIAL PRIMARY KEY,
+      username TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL,
+      rules TEXT NOT NULL,
+      enabled BOOLEAN NOT NULL DEFAULT false,
+      status TEXT NOT NULL DEFAULT 'pending',
+      ai_review TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+  await sql`
     CREATE TABLE IF NOT EXISTS meta (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
