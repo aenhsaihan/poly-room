@@ -3,7 +3,7 @@ import { sql, ensureSchema } from '@/lib/db';
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const body = await req.json() as { enabled?: boolean; status?: string; ai_review?: string };
+  const body = await req.json() as { enabled?: boolean; status?: string; ai_review?: string; appendRules?: string };
   await ensureSchema();
 
   if (body.enabled !== undefined) {
