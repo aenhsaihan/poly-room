@@ -22,6 +22,8 @@ interface Follow {
   lastSyncedAt: string;
   copiedTrades: number;
   copiedSpent: number;
+  mode: string;
+  allocation: number | null;
   trailPct: number | null;
   peakPnl: number;
   lastPnl: number | null;
@@ -187,9 +189,11 @@ export default function CopyPage() {
       <div>
         <h1 className="text-2xl font-bold text-white mb-2">⧉ Copy Trading</h1>
         <p className="text-zinc-400 text-sm leading-relaxed">
-          Follow real Polymarket traders and mirror their actual trades into your paper portfolio.
-          When they buy, you buy the same outcome <span className="text-white">at their exact fill price</span> with
-          a fixed paper amount you choose. When they sell a market you copied, you exit at their price.
+          Follow real Polymarket traders and mirror their actual trades into your paper portfolio
+          <span className="text-white"> at their exact fill price</span>. Allocate a{' '}
+          <span className="text-white">sleeve</span> of paper money per trader — when they bet 10% of their
+          portfolio, you bet 10% of your sleeve, so their conviction transfers and you can copy many traders
+          without overextending. When they sell a market you copied, you exit at their price.
           You can also copy anyone you spot in a market&apos;s <span className="text-white">Real Money Flow</span> tape.
         </p>
       </div>
@@ -225,7 +229,7 @@ export default function CopyPage() {
               { value: 'volume',     label: 'Volume' },
               { value: 'trades',     label: 'Trades copied' },
               { value: 'deployed',   label: 'Deployed' },
-              { value: 'copyAmount', label: '$/trade' },
+              { value: 'copyAmount', label: 'Size' },
               { value: 'since',      label: 'Date followed' },
             ];
 
@@ -240,7 +244,7 @@ export default function CopyPage() {
                 case 'volume':     return (b.volume ?? -Infinity) - (a.volume ?? -Infinity);
                 case 'trades':     return b.copiedTrades - a.copiedTrades;
                 case 'deployed':   return b.copiedSpent - a.copiedSpent;
-                case 'copyAmount': return b.copyPct - a.copyPct;
+                case 'copyAmount': return (b.mode === 'sleeve' ? (b.allocation ?? 0) : b.copyPct) - (a.mode === 'sleeve' ? (a.allocation ?? 0) : a.copyPct);
                 case 'since':      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
               }
             });
@@ -286,7 +290,11 @@ export default function CopyPage() {
                     <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
                       <StatSlot label="Real P&L" value={f.pnl != null ? `+${fmtUsd(f.pnl)}` : '—'} color={f.pnl != null ? 'text-green-400' : 'text-zinc-600'} />
                       <StatSlot label="Real Vol" value={f.volume != null ? fmtUsd(f.volume) : '—'} />
-                      <StatSlot label="Copy %" value={`${f.copyPct}%`} color="text-blue-400" />
+                      {f.mode === 'sleeve' ? (
+                        <StatSlot label="Sleeve" value={`$${(f.allocation ?? 0).toFixed(0)}`} color="text-blue-400" />
+                      ) : (
+                        <StatSlot label="Copy %" value={`${f.copyPct}%`} color="text-blue-400" />
+                      )}
                       <StatSlot label="Trades" value={String(f.copiedTrades)} />
                       <StatSlot label="Deployed" value={f.copiedSpent > 0 ? `$${f.copiedSpent.toFixed(0)}` : '$0'} />
                       <StatSlot

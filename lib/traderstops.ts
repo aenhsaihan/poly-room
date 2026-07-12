@@ -31,6 +31,45 @@ export interface TraderStopSummary {
   triggered: TriggeredStop[];
 }
 
+// Every market+outcome a user has copied from a trader, with copied vs
+// total buy shares (for proportional attribution) and total sell proceeds
+export async function getCopyLegs(userId: number, trader: string) {
+  const { rows } = await sql`
+    SELECT t.market_id, t.outcome, MAX(t.market_question) AS question,
+           SUM(CASE WHEN t.side = 'BUY' AND t.copied_from = ${trader} THEN t.shares ELSE 0 END) AS copied_shares,
+           SUM(CASE WHEN t.side = 'BUY' AND t.copied_from = ${trader} THEN t.amount ELSE 0 END) AS copied_cost,
+           SUM(CASE WHEN t.side = 'BUY' THEN t.shares ELSE 0 END) AS total_buy_shares,
+           SUM(CASE WHEN t.side = 'SELL' THEN t.amount ELSE 0 END) AS sell_proceeds
+    FROM trades t
+    WHERE t.user_id = ${userId}
+      AND EXISTS (
+        SELECT 1 FROM trades c
+        WHERE c.user_id = t.user_id AND c.market_id = t.market_id AND c.outcome = t.outcome
+          AND c.side = 'BUY' AND c.copied_from = ${trader}
+      )
+    GROUP BY t.market_id, t.outcome
+  `;
+  return rows;
+}
+
+// Dollars spent copying a trader and sell proceeds attributed back to those
+// copies — the cashflow half of copy equity (no market prices needed).
+// Sleeve mode uses this: remaining sleeve cash = allocation − cost + proceeds.
+export async function getCopyCashflows(userId: number, trader: string): Promise<{ cost: number; proceeds: number }> {
+  const legs = await getCopyLegs(userId, trader);
+  let cost = 0;
+  let proceeds = 0;
+  for (const leg of legs) {
+    const copiedShares = Number(leg.copied_shares);
+    const totalBuyShares = Number(leg.total_buy_shares);
+    if (copiedShares <= 0 || totalBuyShares <= 0) continue;
+    const frac = Math.min(1, copiedShares / totalBuyShares);
+    cost += Number(leg.copied_cost);
+    proceeds += Number(leg.sell_proceeds) * frac;
+  }
+  return { cost, proceeds };
+}
+
 export async function checkTraderStops(username?: string): Promise<TraderStopSummary> {
   // All active follows — P&L is computed for everyone (it feeds the
   // Copy P&L stat); the stop trigger only applies where trail_pct is set
@@ -60,23 +99,7 @@ export async function checkTraderStops(username?: string): Promise<TraderStopSum
     const trailPct = f.trail_pct == null ? null : Number(f.trail_pct);
     const storedPeak = Number(f.peak_pnl ?? 0);
 
-    // Every market+outcome this user copied from this trader, with
-    // copied vs total buy shares and total sell proceeds
-    const { rows: legs } = await sql`
-      SELECT t.market_id, t.outcome, MAX(t.market_question) AS question,
-             SUM(CASE WHEN t.side = 'BUY' AND t.copied_from = ${trader} THEN t.shares ELSE 0 END) AS copied_shares,
-             SUM(CASE WHEN t.side = 'BUY' AND t.copied_from = ${trader} THEN t.amount ELSE 0 END) AS copied_cost,
-             SUM(CASE WHEN t.side = 'BUY' THEN t.shares ELSE 0 END) AS total_buy_shares,
-             SUM(CASE WHEN t.side = 'SELL' THEN t.amount ELSE 0 END) AS sell_proceeds
-      FROM trades t
-      WHERE t.user_id = ${userId}
-        AND EXISTS (
-          SELECT 1 FROM trades c
-          WHERE c.user_id = t.user_id AND c.market_id = t.market_id AND c.outcome = t.outcome
-            AND c.side = 'BUY' AND c.copied_from = ${trader}
-        )
-      GROUP BY t.market_id, t.outcome
-    `;
+    const legs = await getCopyLegs(userId, trader);
     if (legs.length === 0) continue; // nothing copied yet — no signal
 
     const { rows: posRows } = await sql`

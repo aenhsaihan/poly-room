@@ -6,7 +6,7 @@ export async function GET(req: NextRequest) {
   if (!username) return NextResponse.json({ error: 'username required' }, { status: 400 });
   await ensureSchema();
   const { rows } = await sql`
-    SELECT f.id, f.wallet, f.trader_name, f.copy_pct, f.created_at, f.last_synced_at,
+    SELECT f.id, f.wallet, f.trader_name, f.copy_pct, f.mode, f.allocation, f.created_at, f.last_synced_at,
            f.trail_pct, f.peak_pnl, f.last_pnl, f.stopped_at, f.stopped_pnl,
            COUNT(t.id)::int AS copied_trades,
            COALESCE(SUM(CASE WHEN t.side = 'BUY' THEN t.amount ELSE 0 END), 0) AS copied_spent
@@ -22,6 +22,8 @@ export async function GET(req: NextRequest) {
     wallet: r.wallet as string,
     traderName: r.trader_name as string,
     copyPct: Number(r.copy_pct ?? 100),
+    mode: String(r.mode ?? 'pct'),
+    allocation: r.allocation == null ? null : Number(r.allocation),
     createdAt: r.created_at as string,
     lastSyncedAt: r.last_synced_at as string,
     copiedTrades: Number(r.copied_trades),
@@ -35,14 +37,20 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const { username, wallet, traderName, copyPct, trailPct } = await req.json() as {
-    username: string; wallet: string; traderName: string; copyPct: number; trailPct?: number | null;
+  const { username, wallet, traderName, copyPct, trailPct, mode, allocation } = await req.json() as {
+    username: string; wallet: string; traderName: string; copyPct?: number;
+    trailPct?: number | null; mode?: string; allocation?: number | null;
   };
   if (!username?.trim() || !wallet?.trim() || !traderName?.trim())
     return NextResponse.json({ error: 'username, wallet, traderName required' }, { status: 400 });
-  const pct = Number(copyPct);
-  if (!pct || pct < 1 || pct > 100)
+
+  const followMode = mode === 'sleeve' ? 'sleeve' : 'pct';
+  const pct = Number(copyPct ?? 100);
+  if (followMode === 'pct' && (!pct || pct < 1 || pct > 100))
     return NextResponse.json({ error: 'copyPct must be 1–100' }, { status: 400 });
+  const alloc = followMode === 'sleeve' ? Number(allocation) : null;
+  if (followMode === 'sleeve' && (!alloc || isNaN(alloc) || alloc < 1 || alloc > 100000))
+    return NextResponse.json({ error: 'allocation must be $1–$100,000' }, { status: 400 });
   const trail = trailPct == null ? null : Number(trailPct);
   if (trail !== null && (isNaN(trail) || trail < 1 || trail > 50))
     return NextResponse.json({ error: 'trailPct must be 1–50' }, { status: 400 });
@@ -53,11 +61,13 @@ export async function POST(req: NextRequest) {
 
   const now = Math.floor(Date.now() / 1000);
   const { rows } = await sql`
-    INSERT INTO follows (user_id, wallet, trader_name, copy_amount, copy_pct, trail_pct, last_synced_ts)
-    VALUES (${users[0].id as number}, ${wallet.trim().toLowerCase()}, ${traderName.trim()}, 0, ${pct}, ${trail}, ${now})
+    INSERT INTO follows (user_id, wallet, trader_name, copy_amount, copy_pct, mode, allocation, trail_pct, last_synced_ts)
+    VALUES (${users[0].id as number}, ${wallet.trim().toLowerCase()}, ${traderName.trim()}, 0, ${pct}, ${followMode}, ${alloc}, ${trail}, ${now})
     ON CONFLICT (user_id, wallet) DO UPDATE SET
       copy_pct = ${pct},
       trader_name = ${traderName.trim()},
+      mode = ${followMode},
+      allocation = ${alloc},
       trail_pct = ${trail},
       peak_pnl = COALESCE(follows.last_pnl, 0)
     RETURNING id

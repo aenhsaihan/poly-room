@@ -7,7 +7,8 @@
 // lazily (on page loads) is fair — timing of the sync doesn't change the result.
 
 import { sql, db } from './db';
-import { getWalletTrades, getMarketByConditionId } from './polymarket';
+import { getWalletTrades, getMarketByConditionId, getWalletPositionsValue } from './polymarket';
+import { getCopyCashflows } from './traderstops';
 
 interface FollowRow {
   id: number;
@@ -16,16 +17,26 @@ interface FollowRow {
   trader_name: string;
   copy_amount: number;
   copy_pct: number;
+  mode: string;
+  allocation: number;
   last_synced_ts: number;
   created_at: string;
 }
+
+// Sleeve mode: never let a single copied trade consume more than half the
+// sleeve, even when the trader's visible portfolio is tiny (denominator noise)
+const MAX_SLEEVE_FRACTION = 0.5;
 
 export interface SyncResult {
   follows: number;
   copied: number;
 }
 
-async function syncOneFollow(follow: FollowRow, marketCache: Map<string, { id: string; question: string } | null>): Promise<number> {
+async function syncOneFollow(
+  follow: FollowRow,
+  marketCache: Map<string, { id: string; question: string } | null>,
+  valueCache: Map<string, number>,
+): Promise<number> {
   const all = await getWalletTrades(follow.wallet, 40);
   const since = Math.max(follow.last_synced_ts, Math.floor(new Date(follow.created_at).getTime() / 1000));
   const fresh = all.filter(t => t.timestamp > since).sort((a, b) => a.timestamp - b.timestamp);
@@ -40,6 +51,20 @@ async function syncOneFollow(follow: FollowRow, marketCache: Map<string, { id: s
       const m = await getMarketByConditionId(t.conditionId).catch(() => null);
       marketCache.set(t.conditionId, m ? { id: m.id, question: m.question } : null);
     }
+  }
+
+  // Sleeve mode prep: remaining sleeve cash + the trader's portfolio value
+  // (denominator for proportional sizing), cached per wallet across follows
+  const isSleeve = follow.mode === 'sleeve' && follow.allocation > 0;
+  let sleeveCash = 0;
+  let traderValue = 0;
+  if (isSleeve) {
+    const { cost, proceeds } = await getCopyCashflows(follow.user_id, follow.trader_name);
+    sleeveCash = Math.max(0, follow.allocation - cost + proceeds);
+    if (!valueCache.has(follow.wallet)) {
+      valueCache.set(follow.wallet, await getWalletPositionsValue(follow.wallet).catch(() => 0));
+    }
+    traderValue = valueCache.get(follow.wallet) ?? 0;
   }
 
   let copied = 0;
@@ -59,8 +84,17 @@ async function syncOneFollow(follow: FollowRow, marketCache: Map<string, { id: s
 
       if (t.side === 'BUY') {
         const traderAmount = t.size * t.price;
-        const amount = Math.min(traderAmount * (follow.copy_pct / 100), balance);
-        if (amount < 0.01) continue; // too small or out of cash
+        let amount: number;
+        if (isSleeve) {
+          // they bet X% of their portfolio → you bet X% of your sleeve
+          const denom = Math.max(traderValue, traderAmount);
+          const frac = Math.min(denom > 0 ? traderAmount / denom : 0, MAX_SLEEVE_FRACTION);
+          amount = Math.min(frac * follow.allocation, sleeveCash, balance);
+        } else {
+          amount = Math.min(traderAmount * (follow.copy_pct / 100), balance);
+        }
+        if (amount < 0.01) continue; // too small, sleeve exhausted, or out of cash
+        if (isSleeve) sleeveCash -= amount;
         const shares = amount / t.price;
         await client.query(`UPDATE users SET balance = balance - $1 WHERE id = $2`, [amount, follow.user_id]);
         balance -= amount;
@@ -88,6 +122,7 @@ async function syncOneFollow(follow: FollowRow, marketCache: Map<string, { id: s
         const proceeds = held * t.price;
         await client.query(`UPDATE users SET balance = balance + $1 WHERE id = $2`, [proceeds, follow.user_id]);
         balance += proceeds;
+        if (isSleeve) sleeveCash += proceeds;
         await client.query(
           `DELETE FROM positions WHERE user_id = $1 AND market_id = $2 AND outcome = $3`,
           [follow.user_id, market.id, t.outcome]
@@ -116,8 +151,9 @@ async function syncOneFollow(follow: FollowRow, marketCache: Map<string, { id: s
 
 async function syncFollowRows(rows: FollowRow[]): Promise<SyncResult> {
   const marketCache = new Map<string, { id: string; question: string } | null>();
+  const valueCache = new Map<string, number>();
   let copied = 0;
-  const results = await Promise.allSettled(rows.map(f => syncOneFollow(f, marketCache)));
+  const results = await Promise.allSettled(rows.map(f => syncOneFollow(f, marketCache, valueCache)));
   for (const r of results) if (r.status === 'fulfilled') copied += r.value;
   return { follows: rows.length, copied };
 }
@@ -125,13 +161,13 @@ async function syncFollowRows(rows: FollowRow[]): Promise<SyncResult> {
 // Sync all follows of one user (throttled per follow)
 export async function syncUserFollows(username: string): Promise<SyncResult> {
   const { rows } = await sql`
-    SELECT f.id, f.user_id, f.wallet, f.trader_name, f.copy_amount, f.copy_pct, f.last_synced_ts, f.created_at
+    SELECT f.id, f.user_id, f.wallet, f.trader_name, f.copy_amount, f.copy_pct, f.mode, f.allocation, f.last_synced_ts, f.created_at
     FROM follows f JOIN users u ON u.id = f.user_id
     WHERE LOWER(u.username) = LOWER(${username})
       AND f.stopped_at IS NULL
       AND f.last_synced_at < NOW() - INTERVAL '60 seconds'
   `;
-  return syncFollowRows(rows.map(r => ({ ...r, copy_amount: Number(r.copy_amount), copy_pct: Number(r.copy_pct ?? 100), last_synced_ts: Number(r.last_synced_ts) }) as FollowRow));
+  return syncFollowRows(rows.map(r => ({ ...r, copy_amount: Number(r.copy_amount), copy_pct: Number(r.copy_pct ?? 100), mode: String(r.mode ?? 'pct'), allocation: Number(r.allocation ?? 0), last_synced_ts: Number(r.last_synced_ts) }) as FollowRow));
 }
 
 // Sync everyone's follows, at most once per 5 minutes globally
@@ -145,11 +181,11 @@ export async function syncAllFollows(): Promise<SyncResult | null> {
     ON CONFLICT (key) DO UPDATE SET value = ${String(Date.now())}
   `;
   const { rows } = await sql`
-    SELECT id, user_id, wallet, trader_name, copy_amount, copy_pct, last_synced_ts, created_at
+    SELECT id, user_id, wallet, trader_name, copy_amount, copy_pct, mode, allocation, last_synced_ts, created_at
     FROM follows
     WHERE stopped_at IS NULL
     ORDER BY last_synced_at ASC
     LIMIT 40
   `;
-  return syncFollowRows(rows.map(r => ({ ...r, copy_amount: Number(r.copy_amount), copy_pct: Number(r.copy_pct ?? 100), last_synced_ts: Number(r.last_synced_ts) }) as FollowRow));
+  return syncFollowRows(rows.map(r => ({ ...r, copy_amount: Number(r.copy_amount), copy_pct: Number(r.copy_pct ?? 100), mode: String(r.mode ?? 'pct'), allocation: Number(r.allocation ?? 0), last_synced_ts: Number(r.last_synced_ts) }) as FollowRow));
 }

@@ -80,6 +80,8 @@ export async function ensureSchema() {
   await sql`ALTER TABLE follows ADD COLUMN IF NOT EXISTS last_pnl NUMERIC(14,4)`;
   await sql`ALTER TABLE follows ADD COLUMN IF NOT EXISTS stopped_at TIMESTAMPTZ`;
   await sql`ALTER TABLE follows ADD COLUMN IF NOT EXISTS stopped_pnl NUMERIC(14,4)`;
+  await sql`ALTER TABLE follows ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'pct'`;
+  await sql`ALTER TABLE follows ADD COLUMN IF NOT EXISTS allocation NUMERIC(12,4)`;
   await sql`
     CREATE TABLE IF NOT EXISTS tickets (
       id SERIAL PRIMARY KEY,

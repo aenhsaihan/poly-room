@@ -201,6 +201,16 @@ export interface WalletTrade {
   timestamp: number;
 }
 
+// Current value of a wallet's open Polymarket positions.
+// Note: this is at-risk capital only — idle USDC cash isn't visible on the
+// Data API, so proportional copy sizing uses positions value as the denominator.
+export async function getWalletPositionsValue(wallet: string): Promise<number> {
+  const res = await fetch(`https://data-api.polymarket.com/value?user=${wallet}`, { cache: 'no-store' });
+  if (!res.ok) return 0;
+  const data = await res.json() as { value?: number }[];
+  return Number(data?.[0]?.value ?? 0);
+}
+
 // All recent trades by one wallet — the primitive copy-trading is built on
 // (same Data API surface polybot's PolymarketDataApiClient wraps)
 export async function getWalletTrades(wallet: string, limit = 40): Promise<WalletTrade[]> {
