@@ -22,6 +22,11 @@ interface Follow {
   lastSyncedAt: string;
   copiedTrades: number;
   copiedSpent: number;
+  trailPct: number | null;
+  peakPnl: number;
+  lastPnl: number | null;
+  stoppedAt: string | null;
+  stoppedPnl: number | null;
 }
 
 const fmtUsd = (n: number) => {
@@ -31,6 +36,8 @@ const fmtUsd = (n: number) => {
   if (abs >= 1000) return `${sign}$${(abs / 1000).toFixed(0)}K`;
   return `${sign}$${abs.toFixed(0)}`;
 };
+
+const fmtPnl = (n: number) => `${n >= 0 ? '+' : '-'}$${Math.abs(n).toFixed(2)}`;
 
 function timeAgo(iso: string) {
   const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -50,6 +57,8 @@ export default function CopyPage() {
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [modal, setModal] = useState<{ wallet: string; name: string } | null>(null);
+  const [stopEditor, setStopEditor] = useState<string | null>(null);
+  const [stopPct, setStopPct] = useState(15);
   const [followSort, setFollowSort] = useState<'pnl' | 'volume' | 'trades' | 'deployed' | 'copyAmount' | 'since'>('pnl');
   const [traderSort, setTraderSort] = useState<'pnl' | 'volume' | 'edge' | 'avgBuySize'>('pnl');
   const [traderSortDir, setTraderSortDir] = useState<'desc' | 'asc'>('desc');
@@ -87,7 +96,13 @@ export default function CopyPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username }),
     }).then(r => r.json()).then(d => {
-      if (d.copied > 0) { setSyncMsg(`⧉ ${d.copied} new trade${d.copied > 1 ? 's' : ''} copied into your portfolio`); refreshBalance(); loadFollows(); }
+      const stopMsg = d.stopsTriggered?.length
+        ? ` ⛔ Trailing stop fired on ${d.stopsTriggered.map((s: { trader: string; pnl: number }) => `${s.trader} (${fmtPnl(s.pnl)})`).join(', ')} — copied positions sold.`
+        : '';
+      if (d.copied > 0 || stopMsg) {
+        setSyncMsg(`${d.copied > 0 ? `⧉ ${d.copied} new trade${d.copied > 1 ? 's' : ''} copied into your portfolio.` : ''}${stopMsg}`);
+        refreshBalance(); loadFollows();
+      }
     }).catch(() => {});
   }, [username, refreshBalance, loadFollows]);
 
@@ -102,10 +117,13 @@ export default function CopyPage() {
         body: JSON.stringify({ username }),
       });
       const d = await r.json();
-      setSyncMsg(d.copied > 0
-        ? `⧉ ${d.copied} new trade${d.copied > 1 ? 's' : ''} copied into your portfolio`
-        : 'Up to date — no new trades from the traders you follow.');
-      if (d.copied > 0) { refreshBalance(); loadFollows(); }
+      const stopMsg = d.stopsTriggered?.length
+        ? ` ⛔ Trailing stop fired on ${d.stopsTriggered.map((s: { trader: string; pnl: number }) => `${s.trader} (${fmtPnl(s.pnl)})`).join(', ')} — copied positions sold.`
+        : '';
+      setSyncMsg((d.copied > 0
+        ? `⧉ ${d.copied} new trade${d.copied > 1 ? 's' : ''} copied into your portfolio.`
+        : 'Up to date — no new trades from the traders you follow.') + stopMsg);
+      if (d.copied > 0 || stopMsg) { refreshBalance(); loadFollows(); }
     } catch { setSyncMsg('Sync failed — try again.'); }
     setSyncing(false);
   }
@@ -118,6 +136,28 @@ export default function CopyPage() {
       body: JSON.stringify({ username, wallet }),
     });
     setSyncMsg(`Stopped copying ${name}. Positions you already copied stay in your portfolio.`);
+    loadFollows();
+  }
+
+  async function saveTraderStop(wallet: string, pct: number | null) {
+    if (!username) return;
+    await fetch('/api/follows', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, wallet, trailPct: pct }),
+    });
+    setStopEditor(null);
+    loadFollows();
+  }
+
+  async function resumeFollow(wallet: string, name: string) {
+    if (!username) return;
+    await fetch('/api/follows', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, wallet, resume: true }),
+    });
+    setSyncMsg(`Resumed copying ${name} — only their trades from now on are mirrored.`);
     loadFollows();
   }
 
@@ -238,7 +278,7 @@ export default function CopyPage() {
                           onClick={() => unfollow(f.wallet, f.traderName)}
                           className="text-red-400/60 hover:text-red-400 transition text-xs"
                         >
-                          stop
+                          unfollow
                         </button>
                       </div>
                     </div>
@@ -249,7 +289,77 @@ export default function CopyPage() {
                       <StatSlot label="Copy %" value={`${f.copyPct}%`} color="text-blue-400" />
                       <StatSlot label="Trades" value={String(f.copiedTrades)} />
                       <StatSlot label="Deployed" value={f.copiedSpent > 0 ? `$${f.copiedSpent.toFixed(0)}` : '$0'} />
-                      <StatSlot label="Avg copied" value={f.copiedTrades > 0 ? `$${(f.copiedSpent / f.copiedTrades).toFixed(0)}` : '—'} />
+                      <StatSlot
+                        label="Copy P&L"
+                        value={f.lastPnl != null ? fmtPnl(f.lastPnl) : '—'}
+                        color={f.lastPnl == null ? 'text-zinc-600' : f.lastPnl >= 0 ? 'text-green-400' : 'text-red-400'}
+                      />
+                    </div>
+
+                    {/* Trader trailing stop */}
+                    <div className="mt-3 pt-3 border-t border-zinc-800/60">
+                      {f.stoppedAt ? (
+                        <div className="flex items-center justify-between gap-3 text-xs">
+                          <span className="text-red-400">
+                            ⛔ Stopped out {timeAgo(f.stoppedAt)}
+                            {f.stoppedPnl != null && <> · locked <span className="font-mono font-semibold">{fmtPnl(f.stoppedPnl)}</span></>}
+                            {' '}— copying paused, copied positions sold
+                          </span>
+                          <button
+                            onClick={() => resumeFollow(f.wallet, f.traderName)}
+                            className="flex-shrink-0 text-xs bg-zinc-800 hover:bg-green-900 text-zinc-300 hover:text-green-200 px-3 py-1.5 rounded-lg font-medium transition"
+                          >
+                            Resume copying
+                          </button>
+                        </div>
+                      ) : stopEditor === f.wallet ? (
+                        <div className="flex items-center gap-3 text-xs">
+                          <label className="text-zinc-400">Trailing stop</label>
+                          <input
+                            type="number"
+                            min={1} max={50} step={1}
+                            value={stopPct}
+                            onChange={e => setStopPct(Number(e.target.value))}
+                            className="w-14 bg-zinc-800 border border-zinc-600 rounded px-2 py-1 text-white text-center focus:outline-none focus:border-orange-500"
+                          />
+                          <span className="text-zinc-500">% of deployed below P&L peak</span>
+                          <button
+                            onClick={() => saveTraderStop(f.wallet, stopPct)}
+                            className="ml-auto bg-orange-700 hover:bg-orange-600 text-white px-3 py-1 rounded-lg transition font-medium"
+                          >
+                            Save
+                          </button>
+                          <button onClick={() => setStopEditor(null)} className="text-zinc-600 hover:text-white transition">Cancel</button>
+                        </div>
+                      ) : f.trailPct != null ? (
+                        <div className="flex items-center justify-between gap-3 text-xs">
+                          <span className="text-orange-400/80 font-mono">
+                            🛑 trail {f.trailPct}%
+                            {f.lastPnl != null && <> · P&L {fmtPnl(f.lastPnl)} / peak {fmtPnl(f.peakPnl)}</>}
+                          </span>
+                          <span className="flex items-center gap-2 flex-shrink-0">
+                            <button
+                              onClick={() => { setStopPct(f.trailPct ?? 15); setStopEditor(f.wallet); }}
+                              className="text-zinc-500 hover:text-orange-400 transition"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => saveTraderStop(f.wallet, null)}
+                              className="text-zinc-600 hover:text-red-400 transition"
+                            >
+                              ✕
+                            </button>
+                          </span>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => { setStopPct(15); setStopEditor(f.wallet); }}
+                          className="text-xs text-zinc-500 hover:text-orange-400 transition"
+                        >
+                          + Set trailing stop on this trader
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}

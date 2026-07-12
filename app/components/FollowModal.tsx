@@ -12,6 +12,8 @@ interface Props {
 export default function FollowModal({ wallet, traderName, onClose, onFollowed }: Props) {
   const { username } = useUser();
   const [pct, setPct] = useState(100);
+  const [trailOn, setTrailOn] = useState(false);
+  const [trailPct, setTrailPct] = useState(15);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
@@ -22,7 +24,7 @@ export default function FollowModal({ wallet, traderName, onClose, onFollowed }:
     const res = await fetch('/api/follows', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, wallet, traderName, copyPct: pct }),
+      body: JSON.stringify({ username, wallet, traderName, copyPct: pct, trailPct: trailOn ? trailPct : null }),
     });
     const data = await res.json();
     setLoading(false);
@@ -48,11 +50,12 @@ export default function FollowModal({ wallet, traderName, onClose, onFollowed }:
         {done ? (
           <div className="p-5 space-y-4">
             <p className="text-green-400 text-sm font-medium">
-              ✓ You&apos;re now copying {traderName} at {pct}%.
+              ✓ You&apos;re now copying {traderName} at {pct}%{trailOn ? ` with a ${trailPct}% trailing stop` : ''}.
             </p>
             <p className="text-zinc-400 text-xs leading-relaxed">
               Every real trade they make gets mirrored into your paper portfolio at their actual fill price —
               you copy {pct}% of each dollar they spend. When they sell, you exit at their price.
+              {trailOn && ' If your P&L on them falls off its peak by your trail %, copying stops and your copied positions are sold automatically.'}
             </p>
             <button onClick={onClose} className="w-full bg-zinc-700 hover:bg-zinc-600 text-white font-semibold py-2.5 rounded-lg transition text-sm">
               Done
@@ -105,6 +108,38 @@ export default function FollowModal({ wallet, traderName, onClose, onFollowed }:
                   </div>
                 ))}
               </div>
+            </div>
+
+            {/* Trader trailing stop */}
+            <div className="border border-zinc-800 rounded-lg p-3 space-y-2">
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={trailOn}
+                    onChange={e => setTrailOn(e.target.checked)}
+                    className="accent-orange-500 w-4 h-4"
+                  />
+                  <span className="text-zinc-300 text-xs font-medium">Trailing stop on this trader</span>
+                </label>
+                {trailOn && (
+                  <div className="flex items-center gap-1.5 ml-auto">
+                    <input
+                      type="number"
+                      min={1} max={50} step={1}
+                      value={trailPct}
+                      onChange={e => setTrailPct(Number(e.target.value))}
+                      className="w-14 bg-zinc-800 border border-zinc-600 rounded px-2 py-1 text-white text-xs text-center focus:outline-none focus:border-orange-500"
+                    />
+                    <span className="text-zinc-500 text-xs">%</span>
+                  </div>
+                )}
+              </div>
+              <p className="text-zinc-600 text-xs leading-relaxed">
+                {trailOn
+                  ? `If your P&L from copying them falls ${trailPct}% of your deployed capital below its peak, you stop copying and your copied positions are sold — locking gains near the top or capping the damage.`
+                  : 'Optional: auto-exit this trader when your copy P&L falls off its peak.'}
+              </p>
             </div>
 
             {error && <p className="text-red-400 text-sm">{error}</p>}

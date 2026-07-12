@@ -128,6 +128,7 @@ export async function syncUserFollows(username: string): Promise<SyncResult> {
     SELECT f.id, f.user_id, f.wallet, f.trader_name, f.copy_amount, f.copy_pct, f.last_synced_ts, f.created_at
     FROM follows f JOIN users u ON u.id = f.user_id
     WHERE LOWER(u.username) = LOWER(${username})
+      AND f.stopped_at IS NULL
       AND f.last_synced_at < NOW() - INTERVAL '60 seconds'
   `;
   return syncFollowRows(rows.map(r => ({ ...r, copy_amount: Number(r.copy_amount), copy_pct: Number(r.copy_pct ?? 100), last_synced_ts: Number(r.last_synced_ts) }) as FollowRow));
@@ -146,6 +147,7 @@ export async function syncAllFollows(): Promise<SyncResult | null> {
   const { rows } = await sql`
     SELECT id, user_id, wallet, trader_name, copy_amount, copy_pct, last_synced_ts, created_at
     FROM follows
+    WHERE stopped_at IS NULL
     ORDER BY last_synced_at ASC
     LIMIT 40
   `;

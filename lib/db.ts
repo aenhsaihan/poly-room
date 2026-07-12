@@ -75,6 +75,11 @@ export async function ensureSchema() {
   `;
   await sql`ALTER TABLE trades ADD COLUMN IF NOT EXISTS copied_from TEXT`;
   await sql`ALTER TABLE follows ADD COLUMN IF NOT EXISTS copy_pct NUMERIC(5,2) NOT NULL DEFAULT 100`;
+  await sql`ALTER TABLE follows ADD COLUMN IF NOT EXISTS trail_pct NUMERIC(5,2)`;
+  await sql`ALTER TABLE follows ADD COLUMN IF NOT EXISTS peak_pnl NUMERIC(14,4) NOT NULL DEFAULT 0`;
+  await sql`ALTER TABLE follows ADD COLUMN IF NOT EXISTS last_pnl NUMERIC(14,4)`;
+  await sql`ALTER TABLE follows ADD COLUMN IF NOT EXISTS stopped_at TIMESTAMPTZ`;
+  await sql`ALTER TABLE follows ADD COLUMN IF NOT EXISTS stopped_pnl NUMERIC(14,4)`;
   await sql`
     CREATE TABLE IF NOT EXISTS tickets (
       id SERIAL PRIMARY KEY,

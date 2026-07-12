@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { sql, db, ensureSchema } from '@/lib/db';
 import { getMarket } from '@/lib/polymarket';
+import { checkTraderStops } from '@/lib/traderstops';
 
 export const maxDuration = 60;
 
@@ -99,13 +100,15 @@ async function runSync() {
   return { checked: stops.length, triggered, peaksUpdated };
 }
 
-// Vercel cron hits GET
+// Vercel cron hits GET — one endpoint covers both position stops and trader stops
 export async function GET() {
   const result = await runSync();
-  return NextResponse.json(result);
+  const traderStops = await checkTraderStops().catch(() => ({ checked: 0, triggered: [] }));
+  return NextResponse.json({ ...result, traderStops: { checked: traderStops.checked, triggered: traderStops.triggered.length } });
 }
 
 export async function POST() {
   const result = await runSync();
-  return NextResponse.json(result);
+  const traderStops = await checkTraderStops().catch(() => ({ checked: 0, triggered: [] }));
+  return NextResponse.json({ ...result, traderStops: { checked: traderStops.checked, triggered: traderStops.triggered.length } });
 }
