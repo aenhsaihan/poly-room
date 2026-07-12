@@ -56,7 +56,7 @@ export default function BetModal({ market, onClose, defaultOutcome }: Props) {
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+      <div className="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-md shadow-2xl max-h-[90dvh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="p-5 border-b border-zinc-800">
           <p className="text-zinc-400 text-xs mb-1">Market</p>
           <h3 className="text-white font-semibold text-sm leading-snug">{market.question}</h3>

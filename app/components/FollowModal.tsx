@@ -47,7 +47,7 @@ export default function FollowModal({ wallet, traderName, onClose, onFollowed }:
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+      <div className="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-md shadow-2xl max-h-[90dvh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="p-5 border-b border-zinc-800">
           <p className="text-zinc-400 text-xs mb-1">Copy-trade a real Polymarket trader</p>
           <h3 className="text-white font-semibold">⧉ {traderName}</h3>
