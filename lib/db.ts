@@ -126,6 +126,23 @@ export async function ensureSchema() {
     )
   `;
   await sql`
+    CREATE TABLE IF NOT EXISTS live_trades (
+      id SERIAL PRIMARY KEY,
+      username TEXT NOT NULL,
+      market_id TEXT NOT NULL,
+      market_question TEXT NOT NULL,
+      outcome TEXT NOT NULL,
+      token_id TEXT NOT NULL,
+      side TEXT NOT NULL CHECK(side IN ('BUY','SELL')),
+      amount NUMERIC(12,4) NOT NULL,
+      price NUMERIC(10,6),
+      order_id TEXT,
+      status TEXT NOT NULL,
+      raw JSONB,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+  await sql`
     CREATE TABLE IF NOT EXISTS meta (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
