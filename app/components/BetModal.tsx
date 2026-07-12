@@ -112,6 +112,7 @@ export default function BetModal({ market, onClose, defaultOutcome }: Props) {
             </div>
           </div>
 
+          {tradingMode === 'paper' && (
           <div className="flex items-center gap-3 py-1">
             <label className="flex items-center gap-2 cursor-pointer select-none">
               <input
@@ -135,6 +136,7 @@ export default function BetModal({ market, onClose, defaultOutcome }: Props) {
               </div>
             )}
           </div>
+          )}
 
           {error && <p className="text-red-400 text-sm">{error}</p>}
           {result && <p className="text-green-400 text-sm">{result}</p>}

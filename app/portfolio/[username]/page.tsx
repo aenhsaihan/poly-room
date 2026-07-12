@@ -21,14 +21,27 @@ interface ClosedPosition {
   copied_from: string | null;
 }
 interface LivePosition {
-  market: string;
-  asset: string;
+  title: string;
   outcome: string;
   size: number;
   avgPrice: number;
   curPrice: number;
+  currentValue: number;
+  initialValue: number;
   cashPnl: number;
   percentPnl: number;
+  realizedPnl: number;
+  redeemable: boolean;
+  eventSlug: string;
+  icon: string | null;
+}
+interface LiveTrade {
+  title: string;
+  side: 'BUY' | 'SELL';
+  outcome: string;
+  size: number;
+  price: number;
+  timestamp: number;
 }
 interface StopLoss {
   id: number;
@@ -45,6 +58,14 @@ function fmtDate(iso: string) {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function timeAgo(unix: number) {
+  const s = Math.floor(Date.now() / 1000 - unix);
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
 export default function PortfolioPage({ params }: { params: Promise<{ username: string }> }) {
   const { username } = use(params);
   const { username: me, tradingMode, liveWallet, setLiveWallet } = useUser();
@@ -52,6 +73,8 @@ export default function PortfolioPage({ params }: { params: Promise<{ username: 
   const [stops, setStops] = useState<StopLoss[]>([]);
   const [loading, setLoading] = useState(true);
   const [livePositions, setLivePositions] = useState<LivePosition[]>([]);
+  const [liveTrades, setLiveTrades] = useState<LiveTrade[]>([]);
+  const [liveValue, setLiveValue] = useState(0);
   const [liveLoading, setLiveLoading] = useState(false);
   const [walletInput, setWalletInput] = useState('');
   const [syncing, setSyncing] = useState(false);
@@ -76,17 +99,9 @@ export default function PortfolioPage({ params }: { params: Promise<{ username: 
     fetch(`/api/live-positions?wallet=${encodeURIComponent(wallet)}`)
       .then(r => r.json())
       .then(d => {
-        const positions = Array.isArray(d) ? d : (d.positions ?? []);
-        setLivePositions(positions.map((p: Record<string, unknown>) => ({
-          market: String(p.title ?? p.market ?? ''),
-          asset: String(p.asset ?? ''),
-          outcome: String(p.outcome ?? 'YES'),
-          size: Number(p.size ?? 0),
-          avgPrice: Number(p.avgPrice ?? p.avg_price ?? 0),
-          curPrice: Number(p.curPrice ?? p.current_price ?? 0),
-          cashPnl: Number(p.cashPnl ?? p.cash_pnl ?? 0),
-          percentPnl: Number(p.percentPnl ?? p.percent_pnl ?? 0),
-        })));
+        if (Array.isArray(d?.positions)) setLivePositions(d.positions);
+        if (Array.isArray(d?.trades)) setLiveTrades(d.trades);
+        setLiveValue(Number(d?.value ?? 0));
       })
       .catch(() => {})
       .finally(() => setLiveLoading(false));
@@ -133,6 +148,12 @@ export default function PortfolioPage({ params }: { params: Promise<{ username: 
   const pnl = total - 1000;
   const realizedPnl = closed.reduce((s, c) => s + c.pnl, 0);
 
+  const liveView = tradingMode === 'live' && isMe;
+  const liveOpen = livePositions.filter(p => !p.redeemable && p.currentValue > 0.01);
+  const liveRedeemable = livePositions.filter(p => p.redeemable);
+  const liveUnrealized = liveOpen.reduce((s, p) => s + p.cashPnl, 0);
+  const liveRealized = livePositions.reduce((s, p) => s + p.realizedPnl, 0);
+
   return (
     <main className="max-w-2xl mx-auto px-4 py-8 space-y-8">
       <div>
@@ -143,88 +164,214 @@ export default function PortfolioPage({ params }: { params: Promise<{ username: 
           <h1 className="text-2xl font-bold text-white">{user.username}</h1>
           {isMe && <span className="text-xs text-blue-400 font-medium">you</span>}
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <Stat label="Total Value" value={`$${total.toFixed(2)}`} />
-          <Stat label="Cash" value={`$${user.balance.toFixed(2)}`} color="text-zinc-300" />
-          <Stat label="Unrealized" value={`$${positionValue.toFixed(2)}`} color="text-zinc-300" />
-          <Stat
-            label="Total P&L"
-            value={`${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`}
-            color={pnl >= 0 ? 'text-green-400' : 'text-red-400'}
-          />
-        </div>
+        {!liveView && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <Stat label="Total Value" value={`$${total.toFixed(2)}`} />
+            <Stat label="Cash" value={`$${user.balance.toFixed(2)}`} color="text-zinc-300" />
+            <Stat label="Unrealized" value={`$${positionValue.toFixed(2)}`} color="text-zinc-300" />
+            <Stat
+              label="Total P&L"
+              value={`${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`}
+              color={pnl >= 0 ? 'text-green-400' : 'text-red-400'}
+            />
+          </div>
+        )}
       </div>
 
-      {/* Live positions section */}
-      {tradingMode === 'live' && isMe && (
-        <div className="bg-green-950/20 border border-green-900/40 rounded-xl p-5 space-y-4">
+      {/* Live portfolio (replaces paper view in live mode) */}
+      {liveView && !liveWallet && (
+        <div className="bg-green-950/20 border border-green-900/40 rounded-xl p-5 space-y-3">
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-            <h2 className="text-green-300 font-semibold text-sm">Live Polymarket Positions</h2>
+            <h2 className="text-green-300 font-semibold text-sm">Live Polymarket Portfolio</h2>
           </div>
-          {!liveWallet ? (
-            <div className="space-y-3">
-              <p className="text-zinc-400 text-xs">Enter your Polymarket wallet address to see your real positions.</p>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={walletInput}
-                  onChange={e => setWalletInput(e.target.value)}
-                  placeholder="0x..."
-                  className="flex-1 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-white text-xs font-mono focus:outline-none focus:border-green-500"
-                />
-                <button
-                  onClick={() => {
-                    const w = walletInput.trim();
-                    if (/^0x[0-9a-fA-F]{40}$/.test(w)) {
-                      setLiveWallet(w);
-                      loadLivePositions(w);
-                    }
-                  }}
-                  disabled={!/^0x[0-9a-fA-F]{40}$/.test(walletInput.trim())}
-                  className="text-xs bg-green-700 hover:bg-green-600 disabled:opacity-40 text-white px-3 py-2 rounded-lg transition font-medium"
-                >
-                  Connect
-                </button>
-              </div>
-            </div>
-          ) : liveLoading ? (
-            <div className="space-y-2">
-              {[1, 2].map(i => <div key={i} className="h-12 bg-zinc-900/50 rounded-lg animate-pulse" />)}
-            </div>
-          ) : livePositions.length === 0 ? (
-            <div>
-              <p className="text-zinc-500 text-xs mb-2">No open positions for <span className="font-mono text-zinc-400">{liveWallet.slice(0, 6)}…{liveWallet.slice(-4)}</span></p>
-              <button onClick={() => { setLiveWallet(''); setWalletInput(''); }} className="text-xs text-zinc-600 hover:text-zinc-400 transition">Disconnect wallet</button>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="text-zinc-500 text-xs font-mono">{liveWallet.slice(0, 6)}…{liveWallet.slice(-4)}</p>
-                <button onClick={() => { setLiveWallet(''); setWalletInput(''); setLivePositions([]); }} className="text-xs text-zinc-600 hover:text-zinc-400 transition">Disconnect</button>
-              </div>
-              {livePositions.map((p, i) => {
-                const pnlPos = p.cashPnl >= 0;
-                return (
-                  <div key={i} className="bg-zinc-900/60 border border-zinc-800 rounded-lg p-3">
-                    <p className="text-white text-xs leading-snug mb-1.5 line-clamp-2">{p.market || 'Unknown market'}</p>
-                    <div className="flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2 text-zinc-400">
-                        <span className={`font-bold px-1.5 py-0.5 rounded text-xs ${p.outcome.toLowerCase() === 'yes' ? 'bg-green-900/60 text-green-300' : 'bg-red-900/60 text-red-300'}`}>{p.outcome}</span>
-                        <span>{p.size.toFixed(2)} shares @ <span className="font-mono">{(p.avgPrice * 100).toFixed(0)}¢</span></span>
-                      </div>
-                      <span className={`font-mono font-semibold ${pnlPos ? 'text-green-400' : 'text-red-400'}`}>
-                        {pnlPos ? '+' : ''}${p.cashPnl.toFixed(2)}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          <p className="text-zinc-400 text-xs">Enter your Polymarket wallet address to see your real positions and activity.</p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={walletInput}
+              onChange={e => setWalletInput(e.target.value)}
+              placeholder="0x..."
+              className="flex-1 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-white text-xs font-mono focus:outline-none focus:border-green-500"
+            />
+            <button
+              onClick={() => {
+                const w = walletInput.trim();
+                if (/^0x[0-9a-fA-F]{40}$/.test(w)) {
+                  setLiveWallet(w);
+                  loadLivePositions(w);
+                }
+              }}
+              disabled={!/^0x[0-9a-fA-F]{40}$/.test(walletInput.trim())}
+              className="text-xs bg-green-700 hover:bg-green-600 disabled:opacity-40 text-white px-3 py-2 rounded-lg transition font-medium"
+            >
+              Connect
+            </button>
+          </div>
         </div>
       )}
 
+      {liveView && liveWallet && (
+        <>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+              <span className="text-green-300 font-semibold text-sm">Live</span>
+              <span className="text-zinc-500 text-xs font-mono">{liveWallet.slice(0, 6)}…{liveWallet.slice(-4)}</span>
+            </div>
+            <button
+              onClick={() => { setLiveWallet(''); setWalletInput(''); setLivePositions([]); setLiveTrades([]); setLiveValue(0); }}
+              className="text-xs text-zinc-600 hover:text-zinc-400 transition"
+            >
+              Disconnect
+            </button>
+          </div>
+
+          {liveLoading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="bg-zinc-900 h-16 rounded-xl animate-pulse" />
+              ))}
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <Stat label="Position Value" value={`$${liveValue.toFixed(2)}`} />
+                <Stat
+                  label="Unrealized P&L"
+                  value={`${liveUnrealized >= 0 ? '+' : ''}$${liveUnrealized.toFixed(2)}`}
+                  color={liveUnrealized >= 0 ? 'text-green-400' : 'text-red-400'}
+                />
+                <Stat
+                  label="Realized P&L"
+                  value={`${liveRealized >= 0 ? '+' : ''}$${liveRealized.toFixed(2)}`}
+                  color={liveRealized >= 0 ? 'text-green-400' : 'text-red-400'}
+                />
+                <Stat label="Open Positions" value={String(liveOpen.length)} color="text-zinc-300" />
+              </div>
+
+              {/* Live open positions */}
+              <div>
+                <h2 className="text-lg font-semibold text-white mb-3">
+                  Open Positions <span className="text-zinc-500 text-sm font-normal">({liveOpen.length})</span>
+                </h2>
+                {liveOpen.length === 0 ? (
+                  <p className="text-zinc-600 text-sm bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+                    No open positions on this wallet.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {liveOpen.map((p, i) => {
+                      const pnlPos = p.cashPnl >= 0;
+                      const isYes = p.outcome.toLowerCase() === 'yes';
+                      return (
+                        <a
+                          key={i}
+                          href={p.eventSlug ? `https://polymarket.com/event/${p.eventSlug}` : 'https://polymarket.com'}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block bg-zinc-900 border border-zinc-800 rounded-xl p-4 hover:border-zinc-600 transition"
+                        >
+                          <div className="flex items-start justify-between gap-3 mb-2">
+                            <p className="text-white text-sm leading-snug flex-1">{p.title || 'Unknown market'}</p>
+                            <span className={`text-xs font-bold px-2 py-0.5 rounded flex-shrink-0 ${
+                              isYes ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'
+                            }`}>
+                              {p.outcome}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-zinc-400">
+                              {p.size.toFixed(2)} shares @ <span className="font-mono">{(p.avgPrice * 100).toFixed(0)}¢</span>
+                              <span className="text-zinc-600"> → </span>
+                              <span className="font-mono">{(p.curPrice * 100).toFixed(0)}¢</span>
+                            </span>
+                            <span className="flex items-center gap-3">
+                              <span className="font-mono text-white font-medium">${p.currentValue.toFixed(2)}</span>
+                              <span className={`font-mono font-semibold ${pnlPos ? 'text-green-400' : 'text-red-400'}`}>
+                                {pnlPos ? '+' : ''}${p.cashPnl.toFixed(2)}
+                              </span>
+                            </span>
+                          </div>
+                        </a>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Resolved, awaiting redemption */}
+              {liveRedeemable.length > 0 && (
+                <div>
+                  <h2 className="text-lg font-semibold text-white mb-3">
+                    Resolved <span className="text-zinc-500 text-sm font-normal">({liveRedeemable.length} redeemable)</span>
+                  </h2>
+                  <div className="space-y-2">
+                    {liveRedeemable.map((p, i) => {
+                      const won = p.cashPnl >= 0;
+                      return (
+                        <div key={i} className={`rounded-xl p-4 border ${
+                          won ? 'bg-green-950/20 border-green-900/40' : 'bg-red-950/20 border-red-900/40'
+                        }`}>
+                          <div className="flex items-start justify-between gap-3 mb-1">
+                            <p className="text-white text-sm leading-snug flex-1">{p.title || 'Unknown market'}</p>
+                            <span className={`font-mono font-bold text-sm flex-shrink-0 ${won ? 'text-green-400' : 'text-red-400'}`}>
+                              {won ? '+' : ''}${p.cashPnl.toFixed(2)}
+                            </span>
+                          </div>
+                          <p className="text-zinc-500 text-xs">
+                            {p.outcome} · {p.size.toFixed(2)} shares @ {(p.avgPrice * 100).toFixed(0)}¢ · redeem on Polymarket
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Live activity */}
+              <div>
+                <h2 className="text-lg font-semibold text-white mb-3">
+                  Recent Activity <span className="text-zinc-500 text-sm font-normal">({liveTrades.length} trades)</span>
+                </h2>
+                {liveTrades.length === 0 ? (
+                  <p className="text-zinc-600 text-sm bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+                    No recent trades on this wallet.
+                  </p>
+                ) : (
+                  <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden max-h-[400px] overflow-y-auto divide-y divide-zinc-800/60">
+                    {liveTrades.map((t, i) => {
+                      const usd = t.size * t.price;
+                      const isYes = t.outcome.toLowerCase() === 'yes';
+                      return (
+                        <div key={i} className="px-4 py-3 flex items-center gap-3 text-xs">
+                          <span className={`font-bold px-1.5 py-0.5 rounded flex-shrink-0 w-10 text-center ${
+                            t.side === 'BUY' ? 'bg-green-900/80 text-green-300' : 'bg-red-900/80 text-red-300'
+                          }`}>
+                            {t.side}
+                          </span>
+                          <span className={`font-semibold flex-shrink-0 w-8 ${isYes ? 'text-green-400' : 'text-red-400'}`}>
+                            {t.outcome}
+                          </span>
+                          <span className="text-zinc-300 flex-1 truncate" title={t.title}>{t.title || '—'}</span>
+                          <span className="text-zinc-500 font-mono flex-shrink-0">
+                            {t.size.toFixed(0)} @ {(t.price * 100).toFixed(0)}¢
+                          </span>
+                          <span className="font-mono font-semibold text-white flex-shrink-0">${usd.toFixed(0)}</span>
+                          <span className="text-zinc-600 flex-shrink-0 w-14 text-right">{timeAgo(t.timestamp)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </>
+      )}
+
+      {!liveView && (
+      <>
       {/* Open Positions */}
       <div>
         <div className="flex items-center justify-between mb-3">
@@ -336,6 +483,8 @@ export default function PortfolioPage({ params }: { params: Promise<{ username: 
           </div>
         )}
       </div>
+      </>
+      )}
     </main>
   );
 }
