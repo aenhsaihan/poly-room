@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useUser } from './UserProvider';
 
 interface Props {
@@ -19,6 +19,15 @@ export default function FollowModal({ wallet, traderName, onClose, onFollowed }:
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [unallocated, setUnallocated] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!username) return;
+    fetch(`/api/follows/budget?username=${encodeURIComponent(username)}&excludeWallet=${encodeURIComponent(wallet)}`)
+      .then(r => r.json())
+      .then(d => { if (typeof d?.unallocated === 'number') setUnallocated(d.unallocated); })
+      .catch(() => {});
+  }, [username, wallet]);
 
   async function follow() {
     if (!username) return;
@@ -111,7 +120,11 @@ export default function FollowModal({ wallet, traderName, onClose, onFollowed }:
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-zinc-400 text-xs">Sleeve allocation</label>
-                  <span className="text-zinc-500 text-xs">Balance: <span className="text-white font-mono">${balance.toFixed(2)}</span></span>
+                  <span className="text-zinc-500 text-xs">
+                    Unallocated: <span className={`font-mono ${unallocated != null && alloc > unallocated ? 'text-red-400' : 'text-white'}`}>
+                      ${(unallocated ?? balance).toFixed(2)}
+                    </span>
+                  </span>
                 </div>
                 <div className="flex gap-2 items-center">
                   <span className="text-zinc-400 text-lg">$</span>
@@ -122,9 +135,14 @@ export default function FollowModal({ wallet, traderName, onClose, onFollowed }:
                     className="flex-1 bg-zinc-800 border border-zinc-600 rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-blue-500"
                   />
                 </div>
+                {unallocated != null && alloc > unallocated && (
+                  <p className="text-red-400 text-xs mt-1.5">
+                    Exceeds your unallocated cash — other sleeves have already reserved the rest.
+                  </p>
+                )}
                 <div className="flex gap-2 mt-3">
                   {[50, 100, 250, 500].map(n => (
-                    <button key={n} onClick={() => setAlloc(Math.min(n, Math.floor(balance)))}
+                    <button key={n} onClick={() => setAlloc(Math.min(n, Math.floor(unallocated ?? balance)))}
                       className={`flex-1 text-xs py-1.5 rounded-lg transition font-medium ${
                         alloc === n ? 'bg-blue-600 text-white' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400'
                       }`}>
@@ -222,7 +240,7 @@ export default function FollowModal({ wallet, traderName, onClose, onFollowed }:
             {username ? (
               <button
                 onClick={follow}
-                disabled={loading || (mode === 'sleeve' && (!alloc || alloc < 1))}
+                disabled={loading || (mode === 'sleeve' && (!alloc || alloc < 1 || (unallocated != null && alloc > unallocated)))}
                 className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-semibold py-2.5 rounded-lg transition text-sm"
               >
                 {loading ? 'Following…' : mode === 'sleeve' ? `Copy ${traderName} with $${alloc || 0} sleeve` : `Copy ${traderName} at ${pct}%`}

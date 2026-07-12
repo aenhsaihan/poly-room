@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql, ensureSchema } from '@/lib/db';
+import { getCopyCashflows, getSleeveBudget } from '@/lib/traderstops';
 
 export async function GET(req: NextRequest) {
   const username = req.nextUrl.searchParams.get('username');
   if (!username) return NextResponse.json({ error: 'username required' }, { status: 400 });
   await ensureSchema();
   const { rows } = await sql`
-    SELECT f.id, f.wallet, f.trader_name, f.copy_pct, f.mode, f.allocation, f.created_at, f.last_synced_at,
+    SELECT f.id, f.user_id, f.wallet, f.trader_name, f.copy_pct, f.mode, f.allocation, f.created_at, f.last_synced_at,
            f.trail_pct, f.peak_pnl, f.last_pnl, f.stopped_at, f.stopped_pnl,
            COUNT(t.id)::int AS copied_trades,
            COALESCE(SUM(CASE WHEN t.side = 'BUY' THEN t.amount ELSE 0 END), 0) AS copied_spent
@@ -17,23 +18,35 @@ export async function GET(req: NextRequest) {
     GROUP BY f.id
     ORDER BY f.created_at DESC
   `;
-  return NextResponse.json(rows.map(r => ({
-    id: Number(r.id),
-    wallet: r.wallet as string,
-    traderName: r.trader_name as string,
-    copyPct: Number(r.copy_pct ?? 100),
-    mode: String(r.mode ?? 'pct'),
-    allocation: r.allocation == null ? null : Number(r.allocation),
-    createdAt: r.created_at as string,
-    lastSyncedAt: r.last_synced_at as string,
-    copiedTrades: Number(r.copied_trades),
-    copiedSpent: Number(r.copied_spent),
-    trailPct: r.trail_pct == null ? null : Number(r.trail_pct),
-    peakPnl: Number(r.peak_pnl ?? 0),
-    lastPnl: r.last_pnl == null ? null : Number(r.last_pnl),
-    stoppedAt: (r.stopped_at as string) ?? null,
-    stoppedPnl: r.stopped_pnl == null ? null : Number(r.stopped_pnl),
-  })));
+  const result = [];
+  for (const r of rows) {
+    const mode = String(r.mode ?? 'pct');
+    const allocation = r.allocation == null ? null : Number(r.allocation);
+    let sleeveCash: number | null = null;
+    if (mode === 'sleeve' && allocation != null) {
+      const { cost, proceeds } = await getCopyCashflows(Number(r.user_id), String(r.trader_name));
+      sleeveCash = Math.max(0, allocation - cost + proceeds);
+    }
+    result.push({
+      id: Number(r.id),
+      wallet: r.wallet as string,
+      traderName: r.trader_name as string,
+      copyPct: Number(r.copy_pct ?? 100),
+      mode,
+      allocation,
+      sleeveCash,
+      createdAt: r.created_at as string,
+      lastSyncedAt: r.last_synced_at as string,
+      copiedTrades: Number(r.copied_trades),
+      copiedSpent: Number(r.copied_spent),
+      trailPct: r.trail_pct == null ? null : Number(r.trail_pct),
+      peakPnl: Number(r.peak_pnl ?? 0),
+      lastPnl: r.last_pnl == null ? null : Number(r.last_pnl),
+      stoppedAt: (r.stopped_at as string) ?? null,
+      stoppedPnl: r.stopped_pnl == null ? null : Number(r.stopped_pnl),
+    });
+  }
+  return NextResponse.json(result);
 }
 
 export async function POST(req: NextRequest) {
@@ -58,6 +71,16 @@ export async function POST(req: NextRequest) {
   await ensureSchema();
   const { rows: users } = await sql`SELECT id FROM users WHERE LOWER(username) = LOWER(${username})`;
   if (!users[0]) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+
+  // A sleeve reserves cash — it has to fit in what other sleeves haven't claimed
+  if (followMode === 'sleeve' && alloc) {
+    const budget = await getSleeveBudget(Number(users[0].id), wallet.trim().toLowerCase());
+    if (alloc > budget.unallocated + 0.01) {
+      return NextResponse.json({
+        error: `Sleeve doesn't fit: $${budget.unallocated.toFixed(2)} unallocated (balance $${budget.balance.toFixed(2)} minus $${budget.totalRemaining.toFixed(2)} reserved by other sleeves)`,
+      }, { status: 400 });
+    }
+  }
 
   const now = Math.floor(Date.now() / 1000);
   const { rows } = await sql`

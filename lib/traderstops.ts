@@ -70,6 +70,33 @@ export async function getCopyCashflows(userId: number, trader: string): Promise<
   return { cost, proceeds };
 }
 
+// Sleeve budget: undeployed sleeve cash is a reservation against the user's
+// balance — a new sleeve must fit in what's left. Deployed sleeve money has
+// already left the balance, so only remaining cash counts as reserved.
+export async function getSleeveBudget(userId: number, excludeWallet?: string) {
+  const { rows: sleeves } = await sql`
+    SELECT wallet, trader_name, allocation FROM follows
+    WHERE user_id = ${userId} AND mode = 'sleeve' AND stopped_at IS NULL AND allocation IS NOT NULL
+  `;
+  const { rows: users } = await sql`SELECT balance FROM users WHERE id = ${userId}`;
+  const balance = users[0] ? Number(users[0].balance) : 0;
+  let totalAllocated = 0;
+  let totalRemaining = 0;
+  for (const s of sleeves) {
+    if (excludeWallet && String(s.wallet).toLowerCase() === excludeWallet.toLowerCase()) continue;
+    const allocation = Number(s.allocation);
+    const { cost, proceeds } = await getCopyCashflows(userId, String(s.trader_name));
+    totalAllocated += allocation;
+    totalRemaining += Math.max(0, allocation - cost + proceeds);
+  }
+  return {
+    balance,
+    totalAllocated,
+    totalRemaining,
+    unallocated: Math.max(0, balance - totalRemaining),
+  };
+}
+
 export async function checkTraderStops(username?: string): Promise<TraderStopSummary> {
   // All active follows — P&L is computed for everyone (it feeds the
   // Copy P&L stat); the stop trigger only applies where trail_pct is set

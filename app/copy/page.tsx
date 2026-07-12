@@ -24,6 +24,7 @@ interface Follow {
   copiedSpent: number;
   mode: string;
   allocation: number | null;
+  sleeveCash: number | null;
   trailPct: number | null;
   peakPnl: number;
   lastPnl: number | null;
@@ -50,7 +51,7 @@ function timeAgo(iso: string) {
 }
 
 export default function CopyPage() {
-  const { username, refreshBalance } = useUser();
+  const { username, balance, refreshBalance } = useUser();
   const [traders, setTraders] = useState<TopTrader[]>([]);
   const [worstTraders, setWorstTraders] = useState<TopTrader[]>([]);
   const [follows, setFollows] = useState<Follow[]>([]);
@@ -219,6 +220,20 @@ export default function CopyPage() {
               </button>
             )}
           </div>
+          {(() => {
+            const sleeves = follows.filter(f => f.mode === 'sleeve' && !f.stoppedAt && f.allocation != null);
+            if (sleeves.length === 0) return null;
+            const totalAllocated = sleeves.reduce((s, f) => s + (f.allocation ?? 0), 0);
+            const totalRemaining = sleeves.reduce((s, f) => s + (f.sleeveCash ?? f.allocation ?? 0), 0);
+            const unallocated = Math.max(0, balance - totalRemaining);
+            return (
+              <p className="text-xs text-zinc-500 mb-3 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2">
+                Sleeve budget: <span className="text-white font-mono">${totalAllocated.toFixed(0)}</span> allocated across {sleeves.length} sleeve{sleeves.length > 1 ? 's' : ''} ·{' '}
+                <span className="text-blue-400 font-mono">${totalRemaining.toFixed(0)}</span> waiting to deploy ·{' '}
+                <span className="text-green-400 font-mono">${unallocated.toFixed(0)}</span> cash unallocated
+              </p>
+            );
+          })()}
           {follows.length === 0 ? (
             <p className="text-zinc-600 text-sm bg-zinc-900 border border-zinc-800 rounded-xl p-4">
               Not copying anyone yet — pick a trader below, or hit ⧉ next to any trade in a market&apos;s live tape.
@@ -291,7 +306,11 @@ export default function CopyPage() {
                       <StatSlot label="Real P&L" value={f.pnl != null ? `+${fmtUsd(f.pnl)}` : '—'} color={f.pnl != null ? 'text-green-400' : 'text-zinc-600'} />
                       <StatSlot label="Real Vol" value={f.volume != null ? fmtUsd(f.volume) : '—'} />
                       {f.mode === 'sleeve' ? (
-                        <StatSlot label="Sleeve" value={`$${(f.allocation ?? 0).toFixed(0)}`} color="text-blue-400" />
+                        <StatSlot
+                          label="Sleeve left"
+                          value={`$${(f.sleeveCash ?? f.allocation ?? 0).toFixed(0)}/$${(f.allocation ?? 0).toFixed(0)}`}
+                          color="text-blue-400"
+                        />
                       ) : (
                         <StatSlot label="Copy %" value={`${f.copyPct}%`} color="text-blue-400" />
                       )}
