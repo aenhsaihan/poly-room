@@ -32,16 +32,18 @@ export interface TraderStopSummary {
 }
 
 export async function checkTraderStops(username?: string): Promise<TraderStopSummary> {
+  // All active follows — P&L is computed for everyone (it feeds the
+  // Copy P&L stat); the stop trigger only applies where trail_pct is set
   const { rows: follows } = username
     ? await sql`
         SELECT f.id, f.user_id, f.wallet, f.trader_name, f.trail_pct, f.peak_pnl
         FROM follows f JOIN users u ON u.id = f.user_id
-        WHERE f.trail_pct IS NOT NULL AND f.stopped_at IS NULL
+        WHERE f.stopped_at IS NULL
           AND LOWER(u.username) = LOWER(${username})`
     : await sql`
         SELECT id, user_id, wallet, trader_name, trail_pct, peak_pnl
         FROM follows
-        WHERE trail_pct IS NOT NULL AND stopped_at IS NULL`;
+        WHERE stopped_at IS NULL`;
 
   const triggered: TriggeredStop[] = [];
   const marketCache = new Map<string, Market | null>();
@@ -55,7 +57,7 @@ export async function checkTraderStops(username?: string): Promise<TraderStopSum
   for (const f of follows) {
     const userId = Number(f.user_id);
     const trader = String(f.trader_name);
-    const trailPct = Number(f.trail_pct);
+    const trailPct = f.trail_pct == null ? null : Number(f.trail_pct);
     const storedPeak = Number(f.peak_pnl ?? 0);
 
     // Every market+outcome this user copied from this trader, with
@@ -120,9 +122,10 @@ export async function checkTraderStops(username?: string): Promise<TraderStopSum
     if (cost <= 0) continue;
     const pnl = equity - cost;
     const peak = Math.max(storedPeak, pnl);
-    const threshold = peak - (trailPct / 100) * cost;
 
-    if (pnl > threshold) {
+    // No stop armed, or still above the trigger line → just record P&L
+    const threshold = trailPct === null ? null : peak - (trailPct / 100) * cost;
+    if (threshold === null || pnl > threshold) {
       await sql`UPDATE follows SET peak_pnl = ${peak}, last_pnl = ${pnl} WHERE id = ${Number(f.id)}`;
       continue;
     }
