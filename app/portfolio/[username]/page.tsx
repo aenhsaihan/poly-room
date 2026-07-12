@@ -109,6 +109,20 @@ export default function PortfolioPage({ params }: { params: Promise<{ username: 
 
   useEffect(() => { loadPortfolio(); loadStops(); }, [loadPortfolio, loadStops]);
 
+  // Piggyback stop-loss checks on page visits (endpoint self-throttles);
+  // refresh the view if any stop fired and changed positions
+  useEffect(() => {
+    fetch('/api/stop-losses/sync', { method: 'POST' })
+      .then(r => r.json())
+      .then(d => {
+        if ((d?.triggered ?? 0) > 0 || (d?.traderStops?.triggered ?? 0) > 0) {
+          loadPortfolio();
+          loadStops();
+        }
+      })
+      .catch(() => {});
+  }, [loadPortfolio, loadStops]);
+
   useEffect(() => {
     if (tradingMode === 'live' && liveWallet) loadLivePositions(liveWallet);
   }, [tradingMode, liveWallet, loadLivePositions]);

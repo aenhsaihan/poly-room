@@ -100,15 +100,28 @@ async function runSync() {
   return { checked: stops.length, triggered, peaksUpdated };
 }
 
-// Vercel cron hits GET — one endpoint covers both position stops and trader stops
-export async function GET() {
+// Page loads piggyback on this endpoint, so throttle: at most one full
+// sync per 2 minutes globally. Concurrent full syncs are also unsafe —
+// the position-stop sell path doesn't row-lock like the trader-stop one.
+async function throttledSync() {
+  await ensureSchema();
+  const { rows } = await sql`SELECT value FROM meta WHERE key = 'last_stop_sync'`;
+  const last = rows[0] ? Number(rows[0].value) : 0;
+  if (Date.now() - last < 2 * 60_000) return { skipped: true };
+  await sql`
+    INSERT INTO meta (key, value) VALUES ('last_stop_sync', ${String(Date.now())})
+    ON CONFLICT (key) DO UPDATE SET value = ${String(Date.now())}
+  `;
   const result = await runSync();
   const traderStops = await checkTraderStops().catch(() => ({ checked: 0, triggered: [] }));
-  return NextResponse.json({ ...result, traderStops: { checked: traderStops.checked, triggered: traderStops.triggered.length } });
+  return { ...result, traderStops: { checked: traderStops.checked, triggered: traderStops.triggered.length } };
+}
+
+// Vercel cron hits GET — one endpoint covers both position stops and trader stops
+export async function GET() {
+  return NextResponse.json(await throttledSync());
 }
 
 export async function POST() {
-  const result = await runSync();
-  const traderStops = await checkTraderStops().catch(() => ({ checked: 0, triggered: [] }));
-  return NextResponse.json({ ...result, traderStops: { checked: traderStops.checked, triggered: traderStops.triggered.length } });
+  return NextResponse.json(await throttledSync());
 }
