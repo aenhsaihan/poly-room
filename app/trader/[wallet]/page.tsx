@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useUser } from '../../components/UserProvider';
 import FollowModal from '../../components/FollowModal';
 import type { WalletTrade } from '@/lib/polymarket';
+import type { TraderBacktestResult } from '@/lib/traderbacktest';
 
 interface Stats {
   totalTrades: number;
@@ -236,6 +237,9 @@ export default function TraderPage({ params }: { params: Promise<{ wallet: strin
         </div>
       </div>
 
+      {/* Copy Backtest */}
+      <BacktestSection wallet={wallet} traderName={displayName} />
+
       {/* Recent Trades */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
         <div className="px-5 py-4 border-b border-zinc-800">
@@ -286,6 +290,179 @@ export default function TraderPage({ params }: { params: Promise<{ wallet: strin
         />
       )}
     </main>
+  );
+}
+
+function fmtPnl(n: number) {
+  return `${n >= 0 ? '+' : '-'}$${Math.abs(n).toFixed(2)}`;
+}
+
+function BacktestSection({ wallet, traderName }: { wallet: string; traderName: string }) {
+  const [alloc, setAlloc] = useState(200);
+  const [trailOn, setTrailOn] = useState(true);
+  const [trailPct, setTrailPct] = useState(15);
+  const [days, setDays] = useState(90);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<TraderBacktestResult | null>(null);
+
+  async function run() {
+    setRunning(true); setError(null); setResult(null);
+    try {
+      const res = await fetch('/api/backtest/trader', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wallet, allocation: alloc, trailPct: trailOn ? trailPct : null, days }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error ?? 'backtest failed');
+      setResult(d);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Backtest failed — try again.');
+    }
+    setRunning(false);
+  }
+
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+      <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <span className="text-white font-semibold">⏪ Copy Backtest</span>
+          <p className="text-zinc-600 text-xs mt-0.5">What if you had copied {traderName} with these settings?</p>
+        </div>
+        <button
+          onClick={run}
+          disabled={running}
+          className="text-xs bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-semibold px-4 py-1.5 rounded-lg transition"
+        >
+          {running ? 'Replaying…' : 'Run backtest'}
+        </button>
+      </div>
+
+      <div className="p-5 space-y-4">
+        {/* Params */}
+        <div className="flex items-center gap-x-5 gap-y-3 flex-wrap text-xs">
+          <label className="flex items-center gap-2 text-zinc-400">
+            Sleeve $
+            <input
+              type="number" min={1} step={1}
+              value={alloc}
+              onChange={e => setAlloc(Number(e.target.value))}
+              className="w-20 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-white font-mono text-center focus:outline-none focus:border-blue-500"
+            />
+          </label>
+          <label className="flex items-center gap-2 text-zinc-400 cursor-pointer select-none">
+            <input type="checkbox" checked={trailOn} onChange={e => setTrailOn(e.target.checked)} className="accent-orange-500 w-4 h-4" />
+            Trailing stop
+            {trailOn && (
+              <>
+                <input
+                  type="number" min={1} max={50} step={1}
+                  value={trailPct}
+                  onChange={e => setTrailPct(Number(e.target.value))}
+                  className="w-14 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-white font-mono text-center focus:outline-none focus:border-orange-500"
+                />
+                <span className="text-zinc-500">%</span>
+              </>
+            )}
+          </label>
+          <div className="flex items-center gap-1.5">
+            {[30, 90, 180].map(d => (
+              <button
+                key={d}
+                onClick={() => setDays(d)}
+                className={`px-2.5 py-1 rounded-full border transition ${
+                  days === d ? 'bg-blue-600 border-blue-500 text-white' : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-white'
+                }`}
+              >
+                {d}d
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {error && <p className="text-red-400 text-sm">{error}</p>}
+
+        {result && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <StatChip
+                label={result.trailPct != null ? `P&L (${result.trailPct}% trail)` : 'P&L'}
+                value={fmtPnl(result.finalPnl)}
+                color={result.finalPnl >= 0 ? 'text-green-400' : 'text-red-400'}
+              />
+              {result.trailPct != null && (
+                <StatChip
+                  label="P&L (no stop)"
+                  value={fmtPnl(result.finalPnlNoStop)}
+                  color={result.finalPnlNoStop >= 0 ? 'text-green-400' : 'text-red-400'}
+                />
+              )}
+              <StatChip label="Max drawdown" value={`-$${result.maxDrawdown.toFixed(2)}`} color="text-orange-400" />
+              <StatChip
+                label="Deployed"
+                value={`$${result.totalDeployed.toFixed(0)} of $${result.allocation}`}
+                sub={`${result.buysCopied} copied · ${result.buysSkipped} skipped`}
+              />
+              <StatChip
+                label={result.stopOut ? 'Stopped out' : 'Stop status'}
+                value={result.stopOut ? fmtPnl(result.stopOut.pnl) : result.trailPct != null ? 'never fired' : 'no stop'}
+                color={result.stopOut ? 'text-red-400' : 'text-zinc-300'}
+                sub={result.stopOut ? new Date(result.stopOut.t * 1000).toLocaleDateString() : undefined}
+              />
+            </div>
+
+            <PnlChart curve={result.curve} stopOut={result.stopOut} showNoStop={result.trailPct != null} />
+
+            <div className="text-zinc-600 text-xs leading-relaxed space-y-1">
+              {result.notes.map((n, i) => <p key={i}>⚠ {n}</p>)}
+            </div>
+          </div>
+        )}
+
+        {!result && !error && !running && (
+          <p className="text-zinc-500 text-xs">
+            Replays their last {days} days of real trades through the exact sleeve + trailing-stop
+            engine that powers copying, at their actual fill prices.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PnlChart({ curve, stopOut, showNoStop }: {
+  curve: { t: number; pnl: number; pnlNoStop: number }[];
+  stopOut: { t: number; pnl: number } | null;
+  showNoStop: boolean;
+}) {
+  if (curve.length < 2) return null;
+  const W = 600, H = 160, PAD = 6;
+  const t0 = curve[0].t, t1 = curve[curve.length - 1].t;
+  const values = curve.flatMap(p => showNoStop ? [p.pnl, p.pnlNoStop] : [p.pnl]);
+  const vMin = Math.min(0, ...values), vMax = Math.max(0, ...values);
+  const span = vMax - vMin || 1;
+  const x = (t: number) => PAD + ((t - t0) / (t1 - t0 || 1)) * (W - 2 * PAD);
+  const y = (v: number) => PAD + (1 - (v - vMin) / span) * (H - 2 * PAD);
+  const line = (get: (p: { pnl: number; pnlNoStop: number }) => number) =>
+    curve.map(p => `${x(p.t).toFixed(1)},${y(get(p)).toFixed(1)}`).join(' ');
+
+  return (
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-40 bg-zinc-950/60 rounded-xl border border-zinc-800">
+        <line x1={PAD} x2={W - PAD} y1={y(0)} y2={y(0)} stroke="#3f3f46" strokeDasharray="4 4" strokeWidth="1" />
+        {showNoStop && (
+          <polyline points={line(p => p.pnlNoStop)} fill="none" stroke="#71717a" strokeWidth="1.5" strokeDasharray="5 4" />
+        )}
+        <polyline points={line(p => p.pnl)} fill="none" stroke="#3b82f6" strokeWidth="2" />
+        {stopOut && <circle cx={x(stopOut.t)} cy={y(stopOut.pnl)} r="4" fill="#ef4444" />}
+      </svg>
+      <div className="flex items-center gap-4 mt-1.5 text-xs text-zinc-500">
+        <span className="flex items-center gap-1.5"><span className="inline-block w-4 h-0.5 bg-blue-500" /> with your settings</span>
+        {showNoStop && <span className="flex items-center gap-1.5"><span className="inline-block w-4 h-0.5 bg-zinc-500" style={{ borderTop: '2px dashed' }} /> no stop</span>}
+        {stopOut && <span className="flex items-center gap-1.5"><span className="inline-block w-2 h-2 rounded-full bg-red-500" /> stop fired</span>}
+      </div>
+    </div>
   );
 }
 

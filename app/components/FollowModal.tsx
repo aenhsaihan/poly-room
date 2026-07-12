@@ -20,6 +20,35 @@ export default function FollowModal({ wallet, traderName, onClose, onFollowed }:
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const [unallocated, setUnallocated] = useState<number | null>(null);
+  const [btRunning, setBtRunning] = useState(false);
+  const [btError, setBtError] = useState<string | null>(null);
+  const [btResult, setBtResult] = useState<{
+    finalPnl: number; finalPnlNoStop: number; maxDrawdown: number;
+    stopOut: { t: number; pnl: number } | null; buysCopied: number; days: number;
+  } | null>(null);
+
+  async function backtest() {
+    setBtRunning(true); setBtError(null); setBtResult(null);
+    try {
+      const res = await fetch('/api/backtest/trader', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username, wallet, allocation: alloc,
+          trailPct: trailOn ? trailPct : null, days: 90,
+        }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error ?? 'backtest failed');
+      setBtResult({
+        finalPnl: d.finalPnl, finalPnlNoStop: d.finalPnlNoStop, maxDrawdown: d.maxDrawdown,
+        stopOut: d.stopOut, buysCopied: d.buysCopied, days: d.days,
+      });
+    } catch (e) {
+      setBtError(e instanceof Error ? e.message : 'Backtest failed');
+    }
+    setBtRunning(false);
+  }
 
   useEffect(() => {
     if (!username) return;
@@ -234,6 +263,43 @@ export default function FollowModal({ wallet, traderName, onClose, onFollowed }:
                   : 'Optional: auto-exit this trader when your copy P&L falls off its peak.'}
               </p>
             </div>
+
+            {/* Backtest these settings (sleeve mode) */}
+            {mode === 'sleeve' && (
+              <div className="border border-zinc-800 rounded-lg p-3 space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-zinc-300 text-xs font-medium">⏪ Test these settings first</span>
+                  <button
+                    onClick={backtest}
+                    disabled={btRunning || !alloc || alloc < 1}
+                    className="text-xs bg-zinc-700 hover:bg-zinc-600 disabled:opacity-40 text-zinc-200 px-3 py-1.5 rounded-lg transition font-medium"
+                  >
+                    {btRunning ? 'Replaying 90d…' : 'Backtest (90d)'}
+                  </button>
+                </div>
+                {btError && <p className="text-red-400 text-xs">{btError}</p>}
+                {btResult && (
+                  <div className="text-xs leading-relaxed space-y-1">
+                    <p className="text-zinc-300">
+                      Last {btResult.days}d, ${alloc} sleeve{trailOn ? ` + ${trailPct}% trail` : ''}:{' '}
+                      <span className={`font-mono font-bold ${btResult.finalPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {btResult.finalPnl >= 0 ? '+' : '-'}${Math.abs(btResult.finalPnl).toFixed(2)}
+                      </span>
+                      {trailOn && (
+                        <span className="text-zinc-500"> (no stop: {btResult.finalPnlNoStop >= 0 ? '+' : '-'}${Math.abs(btResult.finalPnlNoStop).toFixed(2)})</span>
+                      )}
+                    </p>
+                    <p className="text-zinc-500">
+                      Max drawdown -${btResult.maxDrawdown.toFixed(2)} · {btResult.buysCopied} trades copied ·{' '}
+                      {btResult.stopOut
+                        ? <span className="text-red-400">stopped out {new Date(btResult.stopOut.t * 1000).toLocaleDateString()}</span>
+                        : 'stop never fired'}
+                    </p>
+                    <p className="text-zinc-600">Past performance ≠ future results. Full chart on the trader page.</p>
+                  </div>
+                )}
+              </div>
+            )}
 
             {error && <p className="text-red-400 text-sm">{error}</p>}
 

@@ -143,6 +143,17 @@ export async function ensureSchema() {
     )
   `;
   await sql`
+    CREATE TABLE IF NOT EXISTS backtests (
+      id SERIAL PRIMARY KEY,
+      username TEXT,
+      kind TEXT NOT NULL DEFAULT 'trader',
+      subject TEXT NOT NULL,
+      params JSONB NOT NULL,
+      result JSONB NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `;
+  await sql`
     CREATE TABLE IF NOT EXISTS meta (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
