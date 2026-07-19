@@ -177,9 +177,12 @@ async function actOnRuns(botId: number): Promise<{ considered: number; placed: n
     const wantOutcome = action === 'BUY YES' ? 'yes' : 'no';
     const idx = market.outcomes.findIndex(o => o.toLowerCase() === wantOutcome);
     if (idx === -1) { skip('marketGone', `no ${wantOutcome.toUpperCase()} outcome`); continue; }
+    // Refuse price extremes: below 5¢ is a lottery ticket with fantasy paper
+    // fills; above 90¢ risks a lot to win pennies on a near-settled question
+    // (e.g. NO at 97¢ on an exact-score market = $1,750 at risk for ~$54).
     const price = market.outcomePrices[idx];
-    if (!price || price <= 0.02 || price >= 0.98) {
-      skip('badPrice', `${wantOutcome.toUpperCase()} at ${(price * 100).toFixed(1)}¢ — extreme prices fill like fiction`);
+    if (!price || price <= 0.05 || price >= 0.90) {
+      skip('badPrice', `${wantOutcome.toUpperCase()} at ${(price * 100).toFixed(1)}¢ — outside the 5–90¢ tradeable band`);
       continue;
     }
 
