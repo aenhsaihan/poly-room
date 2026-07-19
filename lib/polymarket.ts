@@ -22,6 +22,8 @@ export interface Market {
   description?: string;
   conditionId?: string;
   clobTokenIds: string[];
+  eventId?: string;
+  eventSlug?: string;
 }
 
 function parse(raw: Record<string, unknown>): Market {
@@ -46,7 +48,19 @@ function parse(raw: Record<string, unknown>): Market {
     description: raw.description as string | undefined,
     conditionId: raw.conditionId as string | undefined,
     clobTokenIds,
+    eventId: Array.isArray(raw.events) && raw.events[0] ? String((raw.events[0] as Record<string, unknown>).id) : undefined,
+    eventSlug: Array.isArray(raw.events) && raw.events[0] ? String((raw.events[0] as Record<string, unknown>).slug) : undefined,
   };
+}
+
+// All market ids belonging to one event — used to detect same-event overlap
+// (e.g. holding YES on two mutually exclusive tournament winners)
+export async function getEventMarketIds(eventId: string): Promise<string[]> {
+  const res = await fetch(`${GAMMA}/events/${eventId}`, { headers: getHeaders(), next: { revalidate: 300 } });
+  if (!res.ok) return [];
+  const data = await res.json() as { markets?: { id?: unknown }[] };
+  if (!Array.isArray(data.markets)) return [];
+  return data.markets.map(m => String(m.id)).filter(Boolean);
 }
 
 export interface MarketsQuery {
