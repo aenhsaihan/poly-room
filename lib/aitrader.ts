@@ -21,7 +21,11 @@ import { narrateDesk } from './llm';
 export const BOT_USERNAME = 'ClaudeBot';
 export const BOT_WALLET = 'claude-bot'; // sentinel: follows of this "wallet" mirror our DB, not the chain
 
-const MIN_CONVICTION = 15;      // desk scale is 0–100; non-HOLD starts ~12, so 15+ = a real lean
+// Match the desk's own non-HOLD threshold (|score| > 0.12 → conviction ≥ 12):
+// any call the desk publishes as BUY YES / BUY NO is a call the bot will take.
+// A separate, higher bar made published calls silently untradeable — confusing,
+// and redundant since stake sizing already scales down with low conviction.
+const MIN_CONVICTION = 12;
 const MAX_PER_MARKET = 10000;   // $ cap per market (10% of starting book)
 const MIN_BET = 100;            // skip dust
 const MAX_RUN_AGE_SEC = 48 * 3600;
