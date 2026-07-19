@@ -9,6 +9,7 @@ interface Position {
   outcome: string;
   shares: number;
   avg_price: number;
+  copied_from: string | null;
 }
 interface ClosedPosition {
   market_id: string;
@@ -565,7 +566,12 @@ function PositionCard({ position: p, value, pct, isYes, stop, isMe, username, on
         </span>
       </div>
       <div className="flex items-center justify-between text-xs text-zinc-400 mb-2">
-        <span>{p.shares.toFixed(2)} shares @ <span className="font-mono">{(p.avg_price * 100).toFixed(0)}¢</span></span>
+        <span>
+          {p.shares.toFixed(2)} shares @ <span className="font-mono">{(p.avg_price * 100).toFixed(0)}¢</span>
+          {p.copied_from && (
+            <span className="text-blue-400/70 ml-2">⧉ {p.copied_from}</span>
+          )}
+        </span>
         <span className="font-mono text-white font-medium">${value.toFixed(2)}</span>
       </div>
       <div className="h-1 bg-zinc-800 rounded-full overflow-hidden mb-1">

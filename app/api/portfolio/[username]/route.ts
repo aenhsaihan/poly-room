@@ -8,9 +8,20 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ use
   if (!users[0]) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   const user = users[0];
 
+  // Open positions, with copy attribution: which trader(s) the BUY trades
+  // in this market+outcome were mirrored from (null = fully manual)
   const { rows: positions } = await sql`
-    SELECT * FROM positions WHERE user_id = ${user.id} AND shares > 0.0001
-    ORDER BY market_question ASC
+    SELECT p.*, t.copied_from
+    FROM positions p
+    LEFT JOIN (
+      SELECT market_id, outcome,
+             STRING_AGG(DISTINCT copied_from, ', ') AS copied_from
+      FROM trades
+      WHERE user_id = ${user.id} AND side = 'BUY' AND copied_from IS NOT NULL
+      GROUP BY market_id, outcome
+    ) t ON t.market_id = p.market_id AND t.outcome = p.outcome
+    WHERE p.user_id = ${user.id} AND p.shares > 0.0001
+    ORDER BY p.market_question ASC
   `;
 
   // Closed positions: grouped by market+outcome where a SELL trade exists
@@ -33,7 +44,12 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ use
 
   return NextResponse.json({
     user: { ...user, balance: Number(user.balance) },
-    positions: positions.map(p => ({ ...p, shares: Number(p.shares), avg_price: Number(p.avg_price) })),
+    positions: positions.map(p => ({
+      ...p,
+      shares: Number(p.shares),
+      avg_price: Number(p.avg_price),
+      copied_from: (p.copied_from as string) || null,
+    })),
     closed: closed.map(c => ({
       market_id: c.market_id as string,
       market_question: c.market_question as string,
