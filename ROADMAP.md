@@ -28,6 +28,7 @@ DISCOVER edges → VALIDATE them → REHEARSE with $0 risk → DEPLOY real capit
 |---|---|
 | **ROADMAP.md** (this file) | Where are we, what's next, in what order? |
 | [RESEARCH.md](RESEARCH.md) | What's the 2026 state of the art in AI × prediction-market trading, and what does it imply for our architecture? (Sourced) |
+| [INFRASTRUCTURE.md](INFRASTRUCTURE.md) | How fast can we sense and act, which data can we trust, and what runs where? The two-tier (app + worker) substrate plan |
 | [VISION.md](VISION.md) | What does each feature look like fully built? Implementation-ready designs (backtesting, strategy DSL, AI trader, scanner, risk layer) + **codebase invariants** every contributor must respect |
 | [PROFITABILITY.md](PROFITABILITY.md) | Where can real trading profit come from? Edge taxonomy, the RandomBot null baseline, the paper→live promotion gate |
 | [LIVE_TRADING_PLAN.md](LIVE_TRADING_PLAN.md) | How does real-money execution get built safely? Phases 2–4, executor seam, kill switch, known CLOB gotchas |
@@ -73,6 +74,7 @@ before offensive, live capital only through the promotion gate.
 
 | # | Item | Detail lives in | Size | Status |
 |---|---|---|---|---|
+| 0 | **Bug fix: paginate copy-sync trade reads to the watermark** (last-40 window silently drops trades of hyperactive wallets) | INFRASTRUCTURE §data-trust | S | correctness — do first |
 | 1 | GitHub Actions cron for off-hours stop checks (ticket #6) | LIVE_TRADING_PLAN §Phase 4 cadence | S | open — needs user secret |
 | 2 | Forward performance ledger: `value_history` + per-attribution equity curves + **Brier scores per desk run** | PROFITABILITY §A · VISION §E · RESEARCH §2 | S–M | next up |
 | 3 | RandomBot null baseline | PROFITABILITY §B | S | after 2 |
@@ -89,6 +91,7 @@ before offensive, live capital only through the promotion gate.
 | 14 | Promotion gate: formalized paper→live criteria | PROFITABILITY §C | M | after 2+3, before 15 |
 | 15 | Live phase 3: live sleeve copy + live trader stops | LIVE_TRADING_PLAN §3 | L | last, gated by 9+14 |
 | 16 | Risk layer extras: exposure clustering, risk-adjusted leaderboard | VISION §E | M | opportunistic |
+| 17 | Worker tier ("the pulse"): always-on process holding CLOB websockets, fresh-price cache, endpoint triggers | INFRASTRUCTURE | M | build alongside #10 or #15 — plumbing needs a consumer |
 
 **Permanently out of scope** (RESEARCH §1: serverless can't win speed
 wars): cross-side arbitrage execution, latency/momentum racing,
