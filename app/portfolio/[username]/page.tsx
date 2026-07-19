@@ -160,7 +160,7 @@ export default function PortfolioPage({ params }: { params: Promise<{ username: 
   const isMe = user.username.toLowerCase() === me?.toLowerCase();
   const positionValue = positions.reduce((s, p) => s + p.shares * p.avg_price, 0);
   const total = user.balance + positionValue;
-  const pnl = total - 1000;
+  const pnl = total - 100000;
   const realizedPnl = closed.reduce((s, c) => s + c.pnl, 0);
 
   const liveView = tradingMode === 'live' && isMe;

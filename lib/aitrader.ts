@@ -1,6 +1,6 @@
 // ClaudeBot: the agent desk's convictions, given a book of their own.
 //
-// A house user ('ClaudeBot', normal $1,000 start) that:
+// A house user ('ClaudeBot', normal $100,000 start) that:
 //  1. generates ideas — each sync pass it convenes the desk on one trending
 //     market nobody has analyzed recently, storing a normal agent_runs row
 //  2. acts on conviction — fresh desk runs (anyone's) with a non-HOLD action
@@ -22,8 +22,8 @@ export const BOT_USERNAME = 'ClaudeBot';
 export const BOT_WALLET = 'claude-bot'; // sentinel: follows of this "wallet" mirror our DB, not the chain
 
 const MIN_CONVICTION = 15;      // desk scale is 0–100; non-HOLD starts ~12, so 15+ = a real lean
-const MAX_PER_MARKET = 100;     // $ cap per market
-const MIN_BET = 5;              // skip dust
+const MAX_PER_MARKET = 10000;   // $ cap per market (10% of starting book)
+const MIN_BET = 100;            // skip dust
 const MAX_RUN_AGE_SEC = 48 * 3600;
 const MAX_ADVERSE_MOVE = 0.10;  // skip if price ran >10¢ against the call since the run
 const BOT_TRAIL_PCT = 15;

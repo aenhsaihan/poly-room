@@ -144,7 +144,7 @@ export default function BetModal({ market, onClose, defaultOutcome }: Props) {
               {shares > 0 && <span className="text-zinc-500 text-xs">≈ <span className="text-white">{shares.toFixed(2)} shares</span></span>}
             </div>
             <div className="flex gap-1.5 mt-2">
-              {[10, 25, 50, 100].map(n => (
+              {[100, 500, 2500, 10000].map(n => (
                 <button key={n} onClick={() => setAmount(String(Math.min(n, balance)))}
                   className="text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-400 px-2 py-1 rounded transition">
                   ${n}

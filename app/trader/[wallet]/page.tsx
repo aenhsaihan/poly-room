@@ -298,7 +298,7 @@ function fmtPnl(n: number) {
 }
 
 function BacktestSection({ wallet, traderName }: { wallet: string; traderName: string }) {
-  const [alloc, setAlloc] = useState(200);
+  const [alloc, setAlloc] = useState(10000);
   const [trailOn, setTrailOn] = useState(true);
   const [trailPct, setTrailPct] = useState(15);
   const [days, setDays] = useState(90);

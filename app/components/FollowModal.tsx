@@ -12,7 +12,7 @@ interface Props {
 export default function FollowModal({ wallet, traderName, onClose, onFollowed }: Props) {
   const { username, balance } = useUser();
   const [mode, setMode] = useState<'sleeve' | 'pct'>('sleeve');
-  const [alloc, setAlloc] = useState(100);
+  const [alloc, setAlloc] = useState(10000);
   const [pct, setPct] = useState(100);
   const [trailOn, setTrailOn] = useState(false);
   const [trailPct, setTrailPct] = useState(15);
@@ -170,7 +170,7 @@ export default function FollowModal({ wallet, traderName, onClose, onFollowed }:
                   </p>
                 )}
                 <div className="flex gap-2 mt-3">
-                  {[50, 100, 250, 500].map(n => (
+                  {[1000, 5000, 10000, 25000].map(n => (
                     <button key={n} onClick={() => setAlloc(Math.min(n, Math.floor(unallocated ?? balance)))}
                       className={`flex-1 text-xs py-1.5 rounded-lg transition font-medium ${
                         alloc === n ? 'bg-blue-600 text-white' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400'

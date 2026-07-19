@@ -129,7 +129,7 @@ export default function AgentsPage() {
             </div>
             <p className="text-zinc-400 text-xs leading-relaxed max-w-md">
               The desk trades its own convictions: every sync it analyzes a trending market and bets its
-              high-conviction calls with a $1,000 paper book, sized by its own risk manager, each entry
+              high-conviction calls with a $100,000 paper book, sized by its own risk manager, each entry
               protected by a 15% trailing stop. Watch it on the{' '}
               <Link href="/leaderboard" className="text-blue-400 underline">leaderboard</Link> or in{' '}
               <Link href="/portfolio/ClaudeBot" className="text-blue-400 underline">its portfolio</Link>.
@@ -138,7 +138,7 @@ export default function AgentsPage() {
           <div className="flex items-center gap-4 flex-shrink-0">
             {botBook && (() => {
               const total = botBook.balance + botBook.positionValue;
-              const pnl = total - 1000;
+              const pnl = total - 100000;
               return (
                 <div className="text-right">
                   <p className="text-white font-mono font-bold">${total.toFixed(2)}</p>

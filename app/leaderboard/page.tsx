@@ -9,7 +9,7 @@ interface Row {
   position_value: number;
 }
 
-const STARTING_BALANCE = 1000;
+const STARTING_BALANCE = 100000;
 
 export default function LeaderboardPage() {
   const { username } = useUser();
@@ -50,7 +50,7 @@ export default function LeaderboardPage() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white mb-1">🏆 Leaderboard</h1>
-          <p className="text-zinc-400 text-sm">App users ranked by total paper portfolio value. Everyone starts with $1,000.</p>
+          <p className="text-zinc-400 text-sm">App users ranked by total paper portfolio value. Everyone starts with $100,000.</p>
         </div>
         <button
           onClick={handleSync}

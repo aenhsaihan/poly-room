@@ -5,7 +5,7 @@ export async function ensureSchema() {
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
       username TEXT UNIQUE NOT NULL,
-      balance NUMERIC(12,4) NOT NULL DEFAULT 1000.0,
+      balance NUMERIC(12,4) NOT NULL DEFAULT 100000.0,
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `;
@@ -159,6 +159,29 @@ export async function ensureSchema() {
       value TEXT NOT NULL
     )
   `;
+
+  // One-time migration to $100k books (ticket #9): the CREATE above only
+  // sets the default for fresh databases, and existing accounts need the
+  // uniform +$99k top-up that preserves everyone's P&L exactly
+  // (new total − 100000 ≡ old total − 1000). Transaction + meta guard so
+  // concurrent requests can't double-credit.
+  await sql`ALTER TABLE users ALTER COLUMN balance SET DEFAULT 100000.0`;
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `INSERT INTO meta (key, value) VALUES ('balance_migration_100k', 'applied')
+       ON CONFLICT (key) DO NOTHING RETURNING key`
+    );
+    if (rows.length > 0) {
+      await client.query(`UPDATE users SET balance = balance + 99000`);
+    }
+    await client.query('COMMIT');
+  } catch {
+    await client.query('ROLLBACK');
+  } finally {
+    client.release();
+  }
 }
 
 export { sql, db };
