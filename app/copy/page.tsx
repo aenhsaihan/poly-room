@@ -62,6 +62,9 @@ export default function CopyPage() {
   const [modal, setModal] = useState<{ wallet: string; name: string } | null>(null);
   const [stopEditor, setStopEditor] = useState<string | null>(null);
   const [stopPct, setStopPct] = useState(15);
+  const [searchQ, setSearchQ] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<{ name: string; wallet: string }[] | null>(null);
   const [followSort, setFollowSort] = useState<'pnl' | 'volume' | 'trades' | 'deployed' | 'copyAmount' | 'since'>('pnl');
   const [traderSort, setTraderSort] = useState<'pnl' | 'volume' | 'edge' | 'avgBuySize'>('pnl');
   const [traderSortDir, setTraderSortDir] = useState<'desc' | 'asc'>('desc');
@@ -151,6 +154,20 @@ export default function CopyPage() {
     });
     setStopEditor(null);
     loadFollows();
+  }
+
+  async function runSearch() {
+    const q = searchQ.trim();
+    if (q.length < 2) return;
+    setSearching(true);
+    try {
+      const r = await fetch(`/api/trader-search?q=${encodeURIComponent(q)}`);
+      const d = await r.json();
+      setSearchResults(Array.isArray(d) ? d : []);
+    } catch {
+      setSearchResults([]);
+    }
+    setSearching(false);
   }
 
   async function resumeFollow(wallet: string, name: string) {
@@ -402,6 +419,73 @@ export default function CopyPage() {
           })()}
         </div>
       )}
+
+      {/* Find any trader */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 space-y-3">
+        <div>
+          <h2 className="text-white font-semibold text-sm mb-0.5">Find any trader</h2>
+          <p className="text-zinc-600 text-xs">
+            The list below only shows the current leaderboard top — search any Polymarket username
+            (or paste a wallet address) to profile and copy anyone.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={searchQ}
+            onChange={e => { setSearchQ(e.target.value); setSearchResults(null); }}
+            onKeyDown={e => e.key === 'Enter' && runSearch()}
+            placeholder="Username or 0x wallet…"
+            className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-blue-500 min-w-0"
+          />
+          <button
+            onClick={runSearch}
+            disabled={searching || searchQ.trim().length < 2}
+            className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-sm font-semibold px-4 py-2 rounded-lg transition flex-shrink-0"
+          >
+            {searching ? 'Searching…' : 'Search'}
+          </button>
+        </div>
+        {searchResults !== null && (
+          searchResults.length === 0 ? (
+            <p className="text-zinc-500 text-xs">No traders found for “{searchQ.trim()}”.</p>
+          ) : (
+            <div className="space-y-2">
+              {searchResults.map(r => {
+                const followed = followedWallets.has(r.wallet.toLowerCase());
+                return (
+                  <div key={r.wallet} className="flex items-center gap-3 bg-zinc-800/60 rounded-lg px-3 py-2.5">
+                    <Link href={`/trader/${r.wallet}`} className="text-white text-sm font-medium hover:text-blue-300 transition truncate">
+                      {r.name}
+                    </Link>
+                    <span className="text-zinc-600 font-mono text-xs flex-shrink-0">{r.wallet.slice(0, 6)}…{r.wallet.slice(-4)}</span>
+                    <div className="flex items-center gap-2 ml-auto flex-shrink-0">
+                      <Link
+                        href={`/trader/${r.wallet}`}
+                        className="text-xs text-zinc-400 hover:text-white border border-zinc-700 hover:border-zinc-500 px-3 py-1.5 rounded-lg transition"
+                      >
+                        Profile
+                      </Link>
+                      {username && (
+                        followed ? (
+                          <span className="text-xs text-green-400 px-2">✓ copying</span>
+                        ) : (
+                          <button
+                            onClick={() => setModal({ wallet: r.wallet, name: r.name })}
+                            className="text-xs bg-blue-600 hover:bg-blue-500 text-white font-semibold px-3 py-1.5 rounded-lg transition"
+                          >
+                            ⧉ Copy
+                          </button>
+                        )
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )
+        )}
+      </div>
 
       {/* Top traders */}
       <div>

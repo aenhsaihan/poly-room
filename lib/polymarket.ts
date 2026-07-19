@@ -201,6 +201,30 @@ export interface WalletTrade {
   timestamp: number;
 }
 
+export interface TraderSearchResult {
+  name: string;
+  wallet: string;
+}
+
+// Find any Polymarket account by (partial) username — the escape hatch for
+// traders who aren't in the fixed top-N leaderboard snapshot.
+export async function searchTraders(query: string, limit = 8): Promise<TraderSearchResult[]> {
+  const res = await fetch(
+    `${GAMMA}/public-search?q=${encodeURIComponent(query)}&search_profiles=1`,
+    { headers: getHeaders(), cache: 'no-store' }
+  );
+  if (!res.ok) return [];
+  const data = await res.json() as { profiles?: Record<string, unknown>[] };
+  if (!Array.isArray(data.profiles)) return [];
+  return data.profiles
+    .filter(p => typeof p.proxyWallet === 'string' && /^0x[0-9a-fA-F]{40}$/.test(p.proxyWallet as string))
+    .slice(0, limit)
+    .map(p => ({
+      name: String(p.name || p.pseudonym || shortWallet(String(p.proxyWallet))),
+      wallet: String(p.proxyWallet).toLowerCase(),
+    }));
+}
+
 // Current value of a wallet's open Polymarket positions.
 // Note: this is at-risk capital only — idle USDC cash isn't visible on the
 // Data API, so proportional copy sizing uses positions value as the denominator.
