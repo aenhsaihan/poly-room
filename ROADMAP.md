@@ -27,6 +27,7 @@ DISCOVER edges → VALIDATE them → REHEARSE with $0 risk → DEPLOY real capit
 | Document | The question it answers |
 |---|---|
 | **ROADMAP.md** (this file) | Where are we, what's next, in what order? |
+| [RESEARCH.md](RESEARCH.md) | What's the 2026 state of the art in AI × prediction-market trading, and what does it imply for our architecture? (Sourced) |
 | [VISION.md](VISION.md) | What does each feature look like fully built? Implementation-ready designs (backtesting, strategy DSL, AI trader, scanner, risk layer) + **codebase invariants** every contributor must respect |
 | [PROFITABILITY.md](PROFITABILITY.md) | Where can real trading profit come from? Edge taxonomy, the RandomBot null baseline, the paper→live promotion gate |
 | [LIVE_TRADING_PLAN.md](LIVE_TRADING_PLAN.md) | How does real-money execution get built safely? Phases 2–4, executor seam, kill switch, known CLOB gotchas |
@@ -73,19 +74,26 @@ before offensive, live capital only through the promotion gate.
 | # | Item | Detail lives in | Size | Status |
 |---|---|---|---|---|
 | 1 | GitHub Actions cron for off-hours stop checks (ticket #6) | LIVE_TRADING_PLAN §Phase 4 cadence | S | open — needs user secret |
-| 2 | Forward performance ledger: `value_history` + per-attribution equity curves | PROFITABILITY §A · VISION §E | S–M | next up |
+| 2 | Forward performance ledger: `value_history` + per-attribution equity curves + **Brier scores per desk run** | PROFITABILITY §A · VISION §E · RESEARCH §2 | S–M | next up |
 | 3 | RandomBot null baseline | PROFITABILITY §B | S | after 2 |
-| 4 | Longshot-fade house strategy (first structural-bias candidate) | PROFITABILITY §1 | M | after 3 |
-| 5 | Copy-cohort forward test (does leaderboard skill persist?) | PROFITABILITY §3 | M | after 2 |
-| 6 | Live phase 2a: manual sells from live portfolio | LIVE_TRADING_PLAN §2a | S | blocked on wallet |
-| 7 | Live phase 2b: live trailing stops (+ neg-risk order fix) | LIVE_TRADING_PLAN §2b | M | after 6 |
-| 8 | Kill switch + risk caps | LIVE_TRADING_PLAN §Phase 4 | M | before any live auto-buying |
-| 9 | Strategy DSL + engine (prose → compiled rules → execution) | VISION §B | L | independent |
-| 10 | Arb & market-quality scanner | VISION §D | M | independent |
-| 11 | Strategy backtests | VISION §A+B | S | after 9 |
-| 12 | Promotion gate: formalized paper→live criteria | PROFITABILITY §C | M | after 2+3, before 13 |
-| 13 | Live phase 3: live sleeve copy + live trader stops | LIVE_TRADING_PLAN §3 | L | last, gated by 8+12 |
-| 14 | Risk layer extras: exposure clustering, Kelly hints, risk-adjusted leaderboard | VISION §E | M | opportunistic |
+| 4 | **ClaudeBot v2: ensemble desk runs + market-prior Bayesian blend + fractional-Kelly sizing** | RESEARCH §2 | M | after 2 — SOTA-backed, highest-conviction upgrade |
+| 5 | Longshot-fade house strategy (first structural-bias candidate) | PROFITABILITY §1 | M | after 3 |
+| 6 | Copy-cohort forward test (does leaderboard skill persist?) | PROFITABILITY §3 | M | after 2 |
+| 7 | Live phase 2a: manual sells from live portfolio | LIVE_TRADING_PLAN §2a | S | blocked on wallet |
+| 8 | Live phase 2b: live trailing stops (+ neg-risk order fix) | LIVE_TRADING_PLAN §2b | M | after 7 |
+| 9 | Kill switch + risk caps | LIVE_TRADING_PLAN §Phase 4 | M | before any live auto-buying |
+| 10 | **Market-making module: GTC limit orders + liquidity rewards/maker rebates harvesting** | RESEARCH §3 | L | most credible real income; after 9 |
+| 11 | Scanner: intra-Polymarket logical incoherence + **Kalshi comparison feed** (spreads as signal, not arb) | VISION §D · RESEARCH §4 | M | independent |
+| 12 | Strategy DSL + engine (prose → compiled rules → execution) | VISION §B | L | independent |
+| 13 | Strategy backtests | VISION §A+B | S | after 12 |
+| 14 | Promotion gate: formalized paper→live criteria | PROFITABILITY §C | M | after 2+3, before 15 |
+| 15 | Live phase 3: live sleeve copy + live trader stops | LIVE_TRADING_PLAN §3 | L | last, gated by 9+14 |
+| 16 | Risk layer extras: exposure clustering, risk-adjusted leaderboard | VISION §E | M | opportunistic |
+
+**Permanently out of scope** (RESEARCH §1: serverless can't win speed
+wars): cross-side arbitrage execution, latency/momentum racing,
+sub-second news reaction. Windows are ~2.7s and 73% goes to sub-100ms
+bots — our edges must persist minutes-to-days.
 
 **Done** (for the record): agent desk + URL analysis, tickets, strategies
 page, sleeves, trader stops, trader backtest, ClaudeBot, trader search,
