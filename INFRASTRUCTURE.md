@@ -88,3 +88,122 @@ to seconds-to-minutes.
 - **Worker tier:** build when the first substrate-dependent strategy is
   ready to matter — i.e., alongside market-making (#10) or live copy
   (#15), not before. Until then it would be plumbing without a consumer.
+
+---
+
+# Competitive gap analysis — what catching up actually costs
+
+What the bots that beat us actually run, where exactly we fall short, and
+the specific hardware/software that closes each gap — priced, and mapped
+to the backlog item that consumes it. Organized as spending tiers so the
+upgrade path is a sequence of small decisions, not one big one.
+
+## Gap inventory: us vs. the competition
+
+| Capability | Competition runs | We run | Gap | Closes at |
+|---|---|---|---|---|
+| Reaction time | Sub-100ms co-located loops (pure arb) to ~1–5s (serious copy/MM bots) | Minutes (visit-driven) to 24h (cron floor) | 3–5 orders of magnitude | Tier 1 gets seconds; sub-100ms is Tier 3 (declined) |
+| Market data | CLOB WebSockets: live books, trade ticks, own-fill stream | Gamma REST mid-prices (cached, lags the book); no books at all | Blind to spread, depth, book staleness | Tier 0 (REST books) → Tier 1 (WSS) |
+| Followed-wallet detection | Polygon on-chain event streams (`OrderFilled` on the CTF exchange) → ~2s from fill to signal | Data-API polling, last-40 window, minutes-to-hours late, drops trades | Copy latency + correctness | #0 fix (correctness) → Tier 2 (on-chain stream) |
+| Wallet analytics | Own indexed trade DB (Dune/Goldsky/self-indexed) → any wallet, any window, any metric | Polymarket's frozen top-N leaderboard snapshot | Can't rank, screen, or window beyond what the API deigns to give | Tier 2 (own ingestion) |
+| Order management | Persistent authed CLOB client: GTC quotes, cancel/replace, fill stream reconciliation, slippage pre-checks | Cold-start FAK taker orders, no book pre-check, no neg-risk options | Market-making impossible; live exits slow and blind | Tier 1 + backlog #8/#10 |
+| LLM firepower | Ensembles/swarms (50-persona PolySwarm-style), agreement filtering | One Groq call per desk run, free tier | Calibration gap the SOTA says matters most | Tier 0–2 (API spend, not hardware) |
+| News/event awareness | Streaming news APIs, social firehoses, event calendars | None | Whole category (mostly banned as speed-play anyway) | Partial at Tier 2 (calendar); firehose = Tier 3 (declined) |
+| Ops/reliability | Uptime monitoring, alerting, dead-man switches | Nothing — silent failure is invisible until someone notices | We wouldn't know the worker died | Tier 1 (free tools) |
+
+## Tier 0 — $0, software only (do regardless)
+
+1. **Pagination-to-watermark** everywhere (#0 bug and any future "last N"
+   read).
+2. **CLOB REST order books** (`/book` per token) into paper fills and the
+   scanner: real spread/depth awareness, honest slippage estimates,
+   stale-book detection. No sockets needed at poll cadence.
+3. **Request discipline:** in-process caching with staleness stamps,
+   request coalescing, batched market fetches — makes undocumented rate
+   limits a non-issue at our scale.
+4. **GitHub Actions cron** (ticket #6): 10–15-min heartbeat floor, free.
+5. **Groq paid tier as needed** (~$1–5/mo at our volume): unlocks small
+   desk ensembles (5–10 runs/market on candidates only) — the cheapest
+   version of the SOTA agreement filter (RESEARCH §2).
+
+**Gets us:** correctness, book-awareness, 15-min floor, mini-ensembles.
+**Doesn't get us:** anything real-time.
+
+## Tier 1 — ~$5–15/month: the always-on worker (the big unlock)
+
+One small VPS/container (Fly.io, Railway, or Hetzner; **US-East region**
+minimizes RTT to Polymarket's infrastructure — but see compliance note
+below) running a single Node process:
+
+- **CLOB WebSocket subscriptions**: market channel (books/ticks) for held
+  + quoted + watched tokens; user channel for our own live fills →
+  order-state reconciliation for free.
+- **Warm CLOB client**: persistent API creds and HTTP keep-alive — kills
+  the ~1s cold-start signing tax; order round-trips drop to ~100–300ms.
+- **GTC quoting support** (with cancel/replace) — the mechanical
+  prerequisite for market-making (#10).
+- **Trigger duty**: pokes the app's existing sync endpoints (bypass
+  secret) on stop-breach candidates, followed-wallet activity, book
+  drift. App stays the brain (INFRASTRUCTURE principle above).
+- **Ops**: free UptimeRobot ping + a Telegram/ntfy alert channel + a
+  dead-man switch (worker heartbeats a URL; silence = alert). Failure
+  degrades to today's behavior.
+
+**Gets us:** seconds-scale sensing and reaction, market-making
+feasibility, live stops that trail real peaks, alerting.
+**Doesn't get us:** on-chain-speed copy detection or wallet analytics.
+
+## Tier 2 — ~$50–100/month: data independence
+
+1. **Managed Polygon WebSocket** (Alchemy/QuickNode, free tier → ~$49/mo
+   at volume): subscribe to `OrderFilled` events on the CTF exchange
+   contracts, decode fills in real time → followed-wallet copy latency
+   drops from minutes to **~2s (block time)** — parity with serious copy
+   bots. (Running our own Polygon node — 32GB RAM, multi-TB NVMe — is
+   strictly dominated by managed access at our scale.)
+2. **Own wallet-analytics ingestion**: continuously ingest fills into our
+   Postgres (or a cheap ClickHouse/DuckDB sidecar) → our own leaderboard
+   with arbitrary windows/metrics, wallet screening beyond top-N,
+   persistence analysis for the copy-cohort test with *full* trade
+   histories. This is the moat piece: everyone else queries the same
+   crippled API; we'd own the data.
+3. **Shared cache** (worker-local is fine; Redis only if the app must
+   read it): one place for fresh books/prices with staleness stamps.
+4. **LLM ensemble budget** (~$10–30/mo across Groq/OpenRouter): full
+   PolySwarm-style diverse-persona swarms on candidate markets, using
+   *different model families* for genuine diversity in the agreement
+   filter.
+5. **Event calendar feed** (free–cheap: FOMC/CPI/sports schedules) for
+   scheduled-event windows (RESEARCH §5) — pre-position analysis, trigger
+   syncs at known news times.
+
+**Gets us:** near-SOTA copy latency, data no competitor at our scale has,
+real swarms.
+**Doesn't get us:** the sub-second tier — by design.
+
+## Tier 3 — declined on purpose (write it down so nobody relitigates)
+
+Co-located bare metal, kernel-tuned networking, Rust/Go order engines,
+social-media firehoses ($100+/mo for X alone), own archive nodes. This
+tier exists to win races RESEARCH §1 shows are won by whoever spends the
+most on being 50ms faster — a negative-sum game against specialists, on
+strategies we've already banned. Our competitive position is the *lab*
+(falsification machinery + own analytics), not the racetrack.
+
+## Compliance note (not optional)
+
+Worker hosting region and live-order routing interact with Polymarket's
+geo-restrictions and your jurisdiction. Choose hosting consistent with
+where the operator may lawfully trade; if the CLOB rejects orders on
+geo grounds, that is an eligibility signal to resolve with Polymarket,
+never an engineering problem to route around. (Same stance as
+LIVE_TRADING.md.)
+
+## Cost curve summary
+
+| Tier | $/month | Reaction time | Unlocked backlog items |
+|---|---|---|---|
+| 0 | 0 (+$1–5 LLM) | 15 min floor | #0, #1, better #2/#11, mini-ensembles for #4 |
+| 1 | 5–15 | seconds | #8 (live stops), #10 (market-making), ops/alerting |
+| 2 | 50–100 | ~2s copy detection | #6 (real cohort data), #15 (live copy at low slippage), full #4 swarms, own analytics |
+| 3 | 500+ | sub-100ms | nothing we play |

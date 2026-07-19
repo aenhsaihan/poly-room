@@ -28,7 +28,7 @@ DISCOVER edges → VALIDATE them → REHEARSE with $0 risk → DEPLOY real capit
 |---|---|
 | **ROADMAP.md** (this file) | Where are we, what's next, in what order? |
 | [RESEARCH.md](RESEARCH.md) | What's the 2026 state of the art in AI × prediction-market trading, and what does it imply for our architecture? (Sourced) |
-| [INFRASTRUCTURE.md](INFRASTRUCTURE.md) | How fast can we sense and act, which data can we trust, and what runs where? The two-tier (app + worker) substrate plan |
+| [INFRASTRUCTURE.md](INFRASTRUCTURE.md) | How fast can we sense and act, which data can we trust, and what runs where? Two-tier substrate plan + **competitive gap analysis with priced upgrade tiers ($0 → $15 → $100/mo)** |
 | [VISION.md](VISION.md) | What does each feature look like fully built? Implementation-ready designs (backtesting, strategy DSL, AI trader, scanner, risk layer) + **codebase invariants** every contributor must respect |
 | [PROFITABILITY.md](PROFITABILITY.md) | Where can real trading profit come from? Edge taxonomy, the RandomBot null baseline, the paper→live promotion gate |
 | [LIVE_TRADING_PLAN.md](LIVE_TRADING_PLAN.md) | How does real-money execution get built safely? Phases 2–4, executor seam, kill switch, known CLOB gotchas |
