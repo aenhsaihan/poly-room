@@ -34,7 +34,7 @@ DISCOVER edges → VALIDATE them → REHEARSE with $0 risk → DEPLOY real capit
 | [LIVE_TRADING_PLAN.md](LIVE_TRADING_PLAN.md) | How does real-money execution get built safely? Phases 2–4, executor seam, kill switch, known CLOB gotchas |
 | [LIVE_TRADING.md](LIVE_TRADING.md) | Operator manual: bot wallet setup, env vars, allowances, safety rails |
 | [AGENTS.md](AGENTS.md) / [CLAUDE.md](CLAUDE.md) | Rules for AI sessions working in this repo |
-| [README.md](README.md) | Stock Next.js boilerplate (unmodified) |
+| [README.md](README.md) | Public front door: pitch, feature tour, stack summary, run instructions |
 
 **Reading order for a new contributor:** this file → VISION.md's
 "Codebase invariants" section (non-negotiable) → whichever doc owns your
