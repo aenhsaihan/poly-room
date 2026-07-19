@@ -21,7 +21,7 @@ import { narrateDesk } from './llm';
 export const BOT_USERNAME = 'ClaudeBot';
 export const BOT_WALLET = 'claude-bot'; // sentinel: follows of this "wallet" mirror our DB, not the chain
 
-const MIN_CONVICTION = 25;      // desk scale is 0–100; 25+ ≈ solid OVERWEIGHT or better
+const MIN_CONVICTION = 15;      // desk scale is 0–100; non-HOLD starts ~12, so 15+ = a real lean
 const MAX_PER_MARKET = 100;     // $ cap per market
 const MIN_BET = 5;              // skip dust
 const MAX_RUN_AGE_SEC = 48 * 3600;
@@ -29,11 +29,23 @@ const MAX_ADVERSE_MOVE = 0.10;  // skip if price ran >10¢ against the call sinc
 const BOT_TRAIL_PCT = 15;
 const THROTTLE_MS = 10 * 60_000;
 
+export interface SkipReasons {
+  hold: number;
+  lowConviction: number;
+  tooOld: number;
+  marketGone: number;
+  badPrice: number;
+  edgeGone: number;
+  positioned: number;
+  dust: number;
+}
+
 export interface AiTraderSummary {
   skipped?: boolean;
   ideated: string | null;
   runsConsidered: number;
   betsPlaced: number;
+  skipReasons?: SkipReasons;
 }
 
 async function getBotId(): Promise<number> {
@@ -94,9 +106,19 @@ async function ideateOne(): Promise<string | null> {
 }
 
 // Act on desk runs newer than the high-water mark.
-async function actOnRuns(botId: number): Promise<{ considered: number; placed: number }> {
+async function actOnRuns(botId: number): Promise<{ considered: number; placed: number; reasons: SkipReasons }> {
+  const reasons: SkipReasons = {
+    hold: 0, lowConviction: 0, tooOld: 0, marketGone: 0,
+    badPrice: 0, edgeGone: 0, positioned: 0, dust: 0,
+  };
   const { rows: meta } = await sql`SELECT value FROM meta WHERE key = 'ai_trader_last_run_id'`;
-  const lastId = meta[0] ? Number(meta[0].value) : 0;
+  // First run (or after long idle): fast-forward past anything already too
+  // old to act on, so the batch budget goes to actionable runs, not history
+  const { rows: staleMax } = await sql`
+    SELECT COALESCE(MAX(id), 0) AS m FROM agent_runs
+    WHERE created_at < NOW() - INTERVAL '48 hours'
+  `;
+  const lastId = Math.max(meta[0] ? Number(meta[0].value) : 0, Number(staleMax[0]?.m ?? 0));
 
   const { rows: runs } = await sql`
     SELECT id, market_id, market_question, action, conviction, yes_price, created_at,
@@ -106,7 +128,13 @@ async function actOnRuns(botId: number): Promise<{ considered: number; placed: n
     ORDER BY id ASC
     LIMIT 10
   `;
-  if (runs.length === 0) return { considered: 0, placed: 0 };
+  if (runs.length === 0) {
+    await sql`
+      INSERT INTO meta (key, value) VALUES ('ai_trader_last_run_id', ${String(lastId)})
+      ON CONFLICT (key) DO UPDATE SET value = ${String(lastId)}
+    `;
+    return { considered: 0, placed: 0, reasons };
+  }
 
   let placed = 0;
   let maxId = lastId;
@@ -117,22 +145,24 @@ async function actOnRuns(botId: number): Promise<{ considered: number; placed: n
     const conviction = Number(run.conviction);
     const ageSec = (Date.now() - new Date(run.created_at as string).getTime()) / 1000;
 
-    if (action === 'HOLD' || conviction < MIN_CONVICTION || ageSec > MAX_RUN_AGE_SEC) continue;
+    if (action === 'HOLD') { reasons.hold++; continue; }
+    if (conviction < MIN_CONVICTION) { reasons.lowConviction++; continue; }
+    if (ageSec > MAX_RUN_AGE_SEC) { reasons.tooOld++; continue; }
 
     const market = await getMarket(String(run.market_id)).catch(() => null);
-    if (!market || market.closed) continue;
+    if (!market || market.closed) { reasons.marketGone++; continue; }
 
     const wantOutcome = action === 'BUY YES' ? 'yes' : 'no';
     const idx = market.outcomes.findIndex(o => o.toLowerCase() === wantOutcome);
-    if (idx === -1) continue;
+    if (idx === -1) { reasons.marketGone++; continue; }
     const price = market.outcomePrices[idx];
-    if (!price || price <= 0.02 || price >= 0.98) continue;
+    if (!price || price <= 0.02 || price >= 0.98) { reasons.badPrice++; continue; }
 
     // Edge staleness: if YES ran >10¢ against the call since the run, pass
     const yesAtRun = Number(run.yes_price);
     const yesNow = market.outcomePrices[market.outcomes.findIndex(o => o.toLowerCase() === 'yes')] ?? yesAtRun;
     const adverse = action === 'BUY YES' ? yesNow - yesAtRun : yesAtRun - yesNow;
-    if (adverse > MAX_ADVERSE_MOVE) continue;
+    if (adverse > MAX_ADVERSE_MOVE) { reasons.edgeGone++; continue; }
 
     // Already positioned in this market+outcome? One entry per call.
     const { rows: existing } = await sql`
@@ -140,7 +170,7 @@ async function actOnRuns(botId: number): Promise<{ considered: number; placed: n
       WHERE user_id = ${botId} AND market_id = ${market.id} AND outcome = ${market.outcomes[idx]}
         AND shares > 0.001
     `;
-    if (existing.length > 0) continue;
+    if (existing.length > 0) { reasons.positioned++; continue; }
 
     // Size by the desk's own risk manager, fall back to conviction/4 %
     const stakePct = Math.min(25, Math.max(2, Number(run.stake_pct) || Math.round(conviction / 4)));
@@ -151,7 +181,7 @@ async function actOnRuns(botId: number): Promise<{ considered: number; placed: n
       const { rows: users } = await client.query(`SELECT balance FROM users WHERE id = $1 FOR UPDATE`, [botId]);
       const balance = Number(users[0]?.balance ?? 0);
       const amount = Math.min(balance * (stakePct / 100), MAX_PER_MARKET, balance);
-      if (amount < MIN_BET) { await client.query('ROLLBACK'); continue; }
+      if (amount < MIN_BET) { await client.query('ROLLBACK'); reasons.dust++; continue; }
 
       const shares = amount / price;
       await client.query(`UPDATE users SET balance = balance - $1 WHERE id = $2`, [amount, botId]);
@@ -186,13 +216,13 @@ async function actOnRuns(botId: number): Promise<{ considered: number; placed: n
     INSERT INTO meta (key, value) VALUES ('ai_trader_last_run_id', ${String(maxId)})
     ON CONFLICT (key) DO UPDATE SET value = ${String(maxId)}
   `;
-  return { considered: runs.length, placed };
+  return { considered: runs.length, placed, reasons };
 }
 
-export async function syncAiTrader(): Promise<AiTraderSummary> {
+export async function syncAiTrader(force = false): Promise<AiTraderSummary> {
   const { rows: meta } = await sql`SELECT value FROM meta WHERE key = 'last_ai_trader_sync'`;
   const last = meta[0] ? Number(meta[0].value) : 0;
-  if (Date.now() - last < THROTTLE_MS) return { skipped: true, ideated: null, runsConsidered: 0, betsPlaced: 0 };
+  if (!force && Date.now() - last < THROTTLE_MS) return { skipped: true, ideated: null, runsConsidered: 0, betsPlaced: 0 };
   await sql`
     INSERT INTO meta (key, value) VALUES ('last_ai_trader_sync', ${String(Date.now())})
     ON CONFLICT (key) DO UPDATE SET value = ${String(Date.now())}
@@ -200,6 +230,11 @@ export async function syncAiTrader(): Promise<AiTraderSummary> {
 
   const botId = await getBotId();
   const ideated = await ideateOne().catch(() => null);
-  const { considered, placed } = await actOnRuns(botId);
-  return { ideated, runsConsidered: considered, betsPlaced: placed };
+  const { considered, placed, reasons } = await actOnRuns(botId);
+  const summary: AiTraderSummary = { ideated, runsConsidered: considered, betsPlaced: placed, skipReasons: reasons };
+  await sql`
+    INSERT INTO meta (key, value) VALUES ('ai_trader_last_result', ${JSON.stringify({ ...summary, at: new Date().toISOString() })})
+    ON CONFLICT (key) DO UPDATE SET value = ${JSON.stringify({ ...summary, at: new Date().toISOString() })}
+  `.catch(() => {});
+  return summary;
 }
