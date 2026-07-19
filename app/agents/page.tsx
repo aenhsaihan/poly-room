@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import type { Market } from '@/lib/polymarket';
 import AgentDesk from '../components/AgentDesk';
+import FollowModal from '../components/FollowModal';
+import { useUser } from '../components/UserProvider';
 
 interface RunRow {
   id: number;
@@ -50,19 +52,43 @@ function verdict(run: RunRow): { label: string; color: string } | null {
     : { label: `✗ wrong so far (−${pts}¢)`, color: 'text-red-400' };
 }
 
+interface BotBook {
+  balance: number;
+  positionValue: number;
+  positions: number;
+}
+
 export default function AgentsPage() {
+  const { username } = useUser();
   const [runs, setRuns] = useState<RunRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [urlInput, setUrlInput] = useState('');
   const [resolving, setResolving] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
   const [resolvedMarket, setResolvedMarket] = useState<Market | null>(null);
+  const [botBook, setBotBook] = useState<BotBook | null>(null);
+  const [copyBot, setCopyBot] = useState(false);
 
   useEffect(() => {
     fetch('/api/agent-desk')
       .then(r => r.json())
       .then(d => { if (Array.isArray(d)) setRuns(d); setLoading(false); })
       .catch(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    // wake the heartbeat (throttled server-side), then read ClaudeBot's book
+    fetch('/api/stop-losses/sync', { method: 'POST' }).catch(() => {});
+    fetch('/api/portfolio/ClaudeBot')
+      .then(r => r.json())
+      .then(d => {
+        if (!d?.user) return;
+        const positions = Array.isArray(d.positions) ? d.positions : [];
+        const positionValue = positions.reduce(
+          (s: number, p: { shares: number; avg_price: number }) => s + Number(p.shares) * Number(p.avg_price), 0);
+        setBotBook({ balance: Number(d.user.balance), positionValue, positions: positions.length });
+      })
+      .catch(() => {});
   }, []);
 
   async function resolveUrl() {
@@ -91,6 +117,47 @@ export default function AgentsPage() {
           This page is the desk&apos;s public track record — every call anyone has run, and how it&apos;s aging
           against the real price.
         </p>
+      </div>
+
+      {/* Claude's book */}
+      <div className="rounded-2xl border border-blue-900/50 bg-gradient-to-br from-blue-950/40 to-zinc-900 p-5">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-white font-semibold">🤖 Claude&apos;s Book</span>
+              <span className="text-xs bg-blue-900/60 text-blue-300 px-2 py-0.5 rounded-full">autonomous</span>
+            </div>
+            <p className="text-zinc-400 text-xs leading-relaxed max-w-md">
+              The desk trades its own convictions: every sync it analyzes a trending market and bets its
+              high-conviction calls with a $1,000 paper book, sized by its own risk manager, each entry
+              protected by a 15% trailing stop. Watch it on the{' '}
+              <Link href="/leaderboard" className="text-blue-400 underline">leaderboard</Link> or in{' '}
+              <Link href="/portfolio/ClaudeBot" className="text-blue-400 underline">its portfolio</Link>.
+            </p>
+          </div>
+          <div className="flex items-center gap-4 flex-shrink-0">
+            {botBook && (() => {
+              const total = botBook.balance + botBook.positionValue;
+              const pnl = total - 1000;
+              return (
+                <div className="text-right">
+                  <p className="text-white font-mono font-bold">${total.toFixed(2)}</p>
+                  <p className={`text-xs font-mono ${pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)} · {botBook.positions} open
+                  </p>
+                </div>
+              );
+            })()}
+            {username && username !== 'ClaudeBot' && (
+              <button
+                onClick={() => setCopyBot(true)}
+                className="text-sm bg-blue-600 hover:bg-blue-500 text-white font-semibold px-4 py-2 rounded-xl transition"
+              >
+                ⧉ Copy Claude
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Paste a Polymarket URL */}
@@ -199,6 +266,14 @@ export default function AgentsPage() {
           </div>
         )}
       </div>
+
+      {copyBot && (
+        <FollowModal
+          wallet="claude-bot"
+          traderName="ClaudeBot"
+          onClose={() => setCopyBot(false)}
+        />
+      )}
     </main>
   );
 }

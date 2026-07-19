@@ -264,8 +264,8 @@ export default function FollowModal({ wallet, traderName, onClose, onFollowed }:
               </p>
             </div>
 
-            {/* Backtest these settings (sleeve mode) */}
-            {mode === 'sleeve' && (
+            {/* Backtest these settings (sleeve mode, on-chain wallets only) */}
+            {mode === 'sleeve' && /^0x[0-9a-fA-F]{40}$/.test(wallet) && (
               <div className="border border-zinc-800 rounded-lg p-3 space-y-2">
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-zinc-300 text-xs font-medium">⏪ Test these settings first</span>

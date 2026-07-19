@@ -288,8 +288,15 @@ export default function CopyPage() {
                     <div className="flex items-center justify-between gap-3 mb-3">
                       <div className="flex items-center gap-2 min-w-0">
                         {f.rank && <span className="text-zinc-600 font-mono text-xs flex-shrink-0">#{f.rank}</span>}
-                        <Link href={`/trader/${f.wallet}`} className="text-white text-sm font-semibold hover:text-blue-300 transition truncate">⧉ {f.traderName}</Link>
-                        <span className="text-zinc-700 font-mono text-xs flex-shrink-0">{f.wallet.slice(0, 6)}…{f.wallet.slice(-4)}</span>
+                        <Link
+                          href={f.wallet === 'claude-bot' ? '/agents' : `/trader/${f.wallet}`}
+                          className="text-white text-sm font-semibold hover:text-blue-300 transition truncate"
+                        >
+                          {f.wallet === 'claude-bot' ? '🤖' : '⧉'} {f.traderName}
+                        </Link>
+                        {f.wallet !== 'claude-bot' && (
+                          <span className="text-zinc-700 font-mono text-xs flex-shrink-0">{f.wallet.slice(0, 6)}…{f.wallet.slice(-4)}</span>
+                        )}
                       </div>
                       <div className="flex items-center gap-3 flex-shrink-0">
                         <span className="text-zinc-600 text-xs">since {timeAgo(f.createdAt)}</span>

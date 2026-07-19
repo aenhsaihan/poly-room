@@ -8,7 +8,9 @@
 
 import { sql, db } from './db';
 import { getWalletTrades, getMarketByConditionId, getWalletPositionsValue } from './polymarket';
+import type { WalletTrade } from './polymarket';
 import { getCopyCashflows } from './traderstops';
+import { BOT_USERNAME, BOT_WALLET } from './aitrader';
 
 interface FollowRow {
   id: number;
@@ -32,13 +34,55 @@ export interface SyncResult {
   copied: number;
 }
 
+// ClaudeBot's trades live in our DB, not on-chain. Serve them in the same
+// WalletTrade shape (synthetic conditionId doubles as the marketCache key)
+// so every line of the mirroring loop below applies unchanged.
+async function getBotTradeFeed(
+  since: number,
+  marketCache: Map<string, { id: string; question: string } | null>,
+): Promise<WalletTrade[]> {
+  const { rows } = await sql`
+    SELECT t.market_id, t.market_question, t.outcome, t.side, t.shares, t.price,
+           EXTRACT(EPOCH FROM t.created_at)::bigint AS ts
+    FROM trades t JOIN users u ON u.id = t.user_id
+    WHERE u.username = ${BOT_USERNAME} AND EXTRACT(EPOCH FROM t.created_at) > ${since}
+    ORDER BY t.created_at ASC
+    LIMIT 40
+  `;
+  return rows.map(r => {
+    const key = `internal:${r.market_id}`;
+    marketCache.set(key, { id: String(r.market_id), question: String(r.market_question) });
+    return {
+      conditionId: key,
+      title: String(r.market_question),
+      side: (r.side === 'SELL' ? 'SELL' : 'BUY') as 'BUY' | 'SELL',
+      outcome: String(r.outcome),
+      size: Number(r.shares),
+      price: Number(r.price),
+      timestamp: Number(r.ts),
+    };
+  });
+}
+
+async function getBotPositionsValue(): Promise<number> {
+  const { rows } = await sql`
+    SELECT COALESCE(SUM(p.shares * p.avg_price), 0) AS v
+    FROM positions p JOIN users u ON u.id = p.user_id
+    WHERE u.username = ${BOT_USERNAME}
+  `;
+  return Number(rows[0]?.v ?? 0);
+}
+
 async function syncOneFollow(
   follow: FollowRow,
   marketCache: Map<string, { id: string; question: string } | null>,
   valueCache: Map<string, number>,
 ): Promise<number> {
-  const all = await getWalletTrades(follow.wallet, 40);
+  const isBot = follow.wallet === BOT_WALLET;
   const since = Math.max(follow.last_synced_ts, Math.floor(new Date(follow.created_at).getTime() / 1000));
+  const all = isBot
+    ? await getBotTradeFeed(since, marketCache)
+    : await getWalletTrades(follow.wallet, 40);
   const fresh = all.filter(t => t.timestamp > since).sort((a, b) => a.timestamp - b.timestamp);
   if (fresh.length === 0) {
     await sql`UPDATE follows SET last_synced_at = NOW() WHERE id = ${follow.id}`;
@@ -46,6 +90,7 @@ async function syncOneFollow(
   }
 
   // resolve condition IDs → our market ids (gamma), cached across follows
+  // (bot feed pre-seeds the cache with internal: keys)
   for (const t of fresh) {
     if (!marketCache.has(t.conditionId)) {
       const m = await getMarketByConditionId(t.conditionId).catch(() => null);
@@ -62,7 +107,10 @@ async function syncOneFollow(
     const { cost, proceeds } = await getCopyCashflows(follow.user_id, follow.trader_name);
     sleeveCash = Math.max(0, follow.allocation - cost + proceeds);
     if (!valueCache.has(follow.wallet)) {
-      valueCache.set(follow.wallet, await getWalletPositionsValue(follow.wallet).catch(() => 0));
+      const v = isBot
+        ? await getBotPositionsValue().catch(() => 0)
+        : await getWalletPositionsValue(follow.wallet).catch(() => 0);
+      valueCache.set(follow.wallet, v);
     }
     traderValue = valueCache.get(follow.wallet) ?? 0;
   }

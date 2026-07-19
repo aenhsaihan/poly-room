@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { sql, db, ensureSchema } from '@/lib/db';
 import { getMarket } from '@/lib/polymarket';
 import { checkTraderStops } from '@/lib/traderstops';
+import { syncAiTrader } from '@/lib/aitrader';
 
 export const maxDuration = 60;
 
@@ -114,7 +115,13 @@ async function throttledSync() {
   `;
   const result = await runSync();
   const traderStops = await checkTraderStops().catch(() => ({ checked: 0, triggered: [] }));
-  return { ...result, traderStops: { checked: traderStops.checked, triggered: traderStops.triggered.length } };
+  // ClaudeBot heartbeat: ideate + act on fresh desk runs (self-throttled to 10 min)
+  const bot = await syncAiTrader().catch(() => null);
+  return {
+    ...result,
+    traderStops: { checked: traderStops.checked, triggered: traderStops.triggered.length },
+    aiTrader: bot,
+  };
 }
 
 // Vercel cron hits GET — one endpoint covers both position stops and trader stops
